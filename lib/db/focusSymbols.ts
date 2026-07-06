@@ -5,7 +5,7 @@ export const FOCUS_SYMBOLS_KEY = "research.focusSymbols";
 const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
 export async function getFocusedSymbols(): Promise<string[]> {
-  const row = await prisma.botConfig.findUnique({ where: { key: FOCUS_SYMBOLS_KEY } });
+  const row = await prisma.botConfig.findUnique({ where: { key: FOCUS_SYMBOLS_KEY } }).catch(() => null);
   return normalizeFocusedSymbols(parseSymbolsJson(row?.value));
 }
 

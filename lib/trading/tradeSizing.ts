@@ -17,7 +17,7 @@ export function getDefaultTradeSizingSettings(env: AppEnv = getEnv()): TradeSizi
 
 export async function getTradeSizingSettings(): Promise<TradeSizingSettings> {
   const defaults = getDefaultTradeSizingSettings();
-  const row = await prisma.botConfig.findUnique({ where: { key: TRADE_SIZING_KEY } });
+  const row = await prisma.botConfig.findUnique({ where: { key: TRADE_SIZING_KEY } }).catch(() => null);
   if (!row) return defaults;
 
   return {

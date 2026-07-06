@@ -721,14 +721,14 @@ api_contract:
       behavior: returns current open long paper positions, total long market value, allocation percentages, and generatedAt; status 500 with empty positions on error.
     GET /api/settings/trade-sizing:
       source: app/api/settings/trade-sizing/route.ts
-      behavior: returns BotConfig-backed TradeSizingSettings with env-derived defaults when unset.
+      behavior: returns BotConfig-backed TradeSizingSettings with env-derived defaults when unset or BotConfig is temporarily unavailable.
     POST /api/settings/trade-sizing:
       source: app/api/settings/trade-sizing/route.ts
       body: { minBidNotional, maxBidNotional }
       behavior: validates $1 <= min <= max <= $100,000, stores BotConfig trade.sizing, and returns settings.
     GET /api/focus-symbols:
       source: app/api/focus-symbols/route.ts
-      behavior: returns focused symbols from BotConfig research.focusSymbols.
+      behavior: returns focused symbols from BotConfig research.focusSymbols, or [] when BotConfig is temporarily unavailable.
     POST /api/focus-symbols:
       source: app/api/focus-symbols/route.ts
       body: { symbol, focused } or { symbols }
