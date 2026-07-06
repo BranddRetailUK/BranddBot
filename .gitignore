@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+out/
+coverage/
+dist/
+*.tsbuildinfo
+*.log
+prisma/*.db
+prisma/*.db-journal
+prisma/migrations/
+.DS_Store

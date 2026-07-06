@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model BotConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model MarketSnapshot {
+  id        String   @id @default(cuid())
+  symbol    String
+  timeframe String
+  price     Float
+  rsi       Float?
+  barsJson  String
+  createdAt DateTime @default(now())
+
+  @@index([symbol, createdAt])
+}
+
+model Signal {
+  id                  String   @id @default(cuid())
+  symbol              String
+  action              String
+  confidence          Float
+  rsi                 Float?
+  reason              String
+  recommendedNotional Float?
+  createdAt           DateTime @default(now())
+
+  @@index([symbol, createdAt])
+}
+
+model AiAudit {
+  id                             String   @id @default(cuid())
+  symbol                         String
+  promptHash                     String
+  inputJson                      String
+  outputJson                     String
+  decision                       String
+  confidence                     Float
+  rationale                      String
+  riskFlagsJson                  String
+  learningUpdateJson             String
+  recommendedAdjustmentsJson     String
+  accepted                       Boolean
+  rejectionReasonsJson           String
+  tradeOutcomeJson               String?
+  openAiResponseId               String?
+  createdAt                      DateTime @default(now())
+
+  @@index([symbol, createdAt])
+  @@index([createdAt])
+}
+
+model Trade {
+  id          String   @id @default(cuid())
+  symbol      String
+  side        String
+  qty         Float?
+  notional    Float?
+  price       Float?
+  orderId     String?
+  status      String
+  realizedPnl Float?
+  rationale   String?
+  createdAt   DateTime @default(now())
+  closedAt    DateTime?
+
+  @@index([symbol, createdAt])
+}
+
+model LearningEvent {
+  id          String   @id @default(cuid())
+  symbol      String
+  reward      Float
+  summary     String
+  source      String
+  createdAt   DateTime @default(now())
+
+  @@index([symbol, createdAt])
+}
