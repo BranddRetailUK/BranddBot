@@ -790,7 +790,7 @@ ui_contract:
         - model, watchlist, bid range, research auto-trade status
         - controls
         - latest AI decision
-        - beginner-friendly explanations for RSI, watchlist, risk gate, open paper trades, research symbols, research auto-trading, active opportunities, max position size
+        - bot state for open paper trades, research symbols, research auto-trading, active opportunities, and max position size
     plan:
       source: app/dashboard/plan/page.tsx
       route: /dashboard/plan

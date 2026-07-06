@@ -95,58 +95,33 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="grid two" style={{ marginTop: 16 }}>
-        <div className="panel">
-          <div className="panelHeader">
-            <div>
-              <span>Plain English</span>
-              <h2>What The Main Terms Mean</h2>
-            </div>
-          </div>
-          <div className="panelBody stack">
-            <Term title="RSI">
-              RSI means Relative Strength Index. It compares recent upward and downward price moves. Low RSI can suggest a
-              stock is oversold; high RSI can suggest it is overbought.
-            </Term>
-            <Term title="Watchlist">
-              The watchlist is the set of symbols the bot is allowed to inspect. A symbol is the short market code for a
-              stock or fund, such as AAPL or SPY.
-            </Term>
-            <Term title="Risk Gate">
-              The risk gate is the final safety check. It can block a trade if size, confidence, daily loss, or paper-only
-              rules are not satisfied.
-            </Term>
+      <section className="panel" style={{ marginTop: 16 }}>
+        <div className="panelHeader">
+          <div>
+            <span>Current Shape</span>
+            <h2>Bot State</h2>
           </div>
         </div>
-
-        <div className="panel">
-          <div className="panelHeader">
-            <div>
-              <span>Current Shape</span>
-              <h2>Bot State</h2>
-            </div>
-          </div>
-          <div className="panelBody stack">
-            <Term title="Open paper trades">
-              {openTradeCount} trade record(s) are currently open or waiting for reconciliation.
-            </Term>
-            <Term title="Research symbols">
-              The research crawler is currently looking at {runtime.research.symbols.join(", ")}
-              {focusedSymbols.length > 0 ? ` plus focused symbols ${focusedSymbols.join(", ")}.` : "."}
-            </Term>
-            <Term title="Research auto-trading">
-              {runtime.researchAutoTrade.enabled
-                ? `Enabled for up to ${runtime.researchAutoTrade.maxItemsPerRun} paper order(s) per worker run, ${runtime.researchAutoTrade.maxDailyOrders} per day, with a ${runtime.researchAutoTrade.symbolCooldownMinutes} minute symbol cooldown.`
-                : "Disabled. Positive research opportunities will not directly place paper orders."}
-            </Term>
-            <Term title="Active opportunities">
-              {activeOpportunityCount} active source-backed opportunity record(s) are available for plans, AI context, and research auto-trading.
-            </Term>
-            <Term title="Maximum position per symbol">
-              The bot will not intentionally hold more than ${runtime.risk.maxPositionNotionalPerSymbol} of one symbol in
-              the current paper-risk settings.
-            </Term>
-          </div>
+        <div className="panelBody stack">
+          <Term title="Open paper trades">
+            {openTradeCount} trade record(s) are currently open or waiting for reconciliation.
+          </Term>
+          <Term title="Research symbols">
+            The research crawler is currently looking at {runtime.research.symbols.join(", ")}
+            {focusedSymbols.length > 0 ? ` plus focused symbols ${focusedSymbols.join(", ")}.` : "."}
+          </Term>
+          <Term title="Research auto-trading">
+            {runtime.researchAutoTrade.enabled
+              ? `Enabled for up to ${runtime.researchAutoTrade.maxItemsPerRun} paper order(s) per worker run, ${runtime.researchAutoTrade.maxDailyOrders} per day, with a ${runtime.researchAutoTrade.symbolCooldownMinutes} minute symbol cooldown.`
+              : "Disabled. Positive research opportunities will not directly place paper orders."}
+          </Term>
+          <Term title="Active opportunities">
+            {activeOpportunityCount} active source-backed opportunity record(s) are available for plans, AI context, and research auto-trading.
+          </Term>
+          <Term title="Maximum position per symbol">
+            The bot will not intentionally hold more than ${runtime.risk.maxPositionNotionalPerSymbol} of one symbol in
+            the current paper-risk settings.
+          </Term>
         </div>
       </section>
     </>
