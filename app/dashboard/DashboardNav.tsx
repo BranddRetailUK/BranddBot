@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, BookOpenText, ClipboardList, LineChart, Newspaper } from "lucide-react";
+import { Activity, BookOpenText, ClipboardList, LineChart, ListChecks, Newspaper } from "lucide-react";
 
 const items = [
   { href: "/dashboard", label: "Overview", icon: Activity },
+  { href: "/dashboard/plan", label: "Trade Plan", icon: ListChecks },
   { href: "/dashboard/decisions", label: "AI Decisions", icon: ClipboardList },
   { href: "/dashboard/trades", label: "Trades", icon: LineChart },
   { href: "/dashboard/research", label: "Research", icon: Newspaper },

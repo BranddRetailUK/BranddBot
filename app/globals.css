@@ -231,6 +231,10 @@ table {
   min-width: 760px;
 }
 
+table.wideTable {
+  min-width: 1120px;
+}
+
 th,
 td {
   text-align: left;
@@ -286,6 +290,39 @@ tr:last-child td {
 
 .direction.watch {
   color: var(--warning);
+}
+
+.planAction {
+  display: inline-flex;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.planAction.buy_candidate {
+  color: var(--success);
+  border-color: #b7e4ce;
+}
+
+.planAction.sell_candidate,
+.planAction.avoid {
+  color: var(--danger);
+  border-color: #f3b8b2;
+}
+
+.planAction.watch {
+  color: var(--warning);
+  border-color: #ffd9a8;
+}
+
+.sourceLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .muted {

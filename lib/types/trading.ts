@@ -243,3 +243,40 @@ export type ReconcileResult = {
   closedTrades: number;
   learningEvents: number;
 };
+
+export type TradePlanSuggestedAction = "watch" | "buy_candidate" | "sell_candidate" | "avoid";
+
+export type TradePlanItemSummary = {
+  id?: string;
+  rank: number;
+  symbol: string;
+  suggestedAction: TradePlanSuggestedAction;
+  thesis: string;
+  catalyst: string;
+  confidence: number;
+  score: number;
+  riskNotes: string[];
+  eligibleForRsi: boolean;
+  tradableNow: boolean;
+  tradabilityReason: string;
+  opportunityIds: string[];
+  sourceUrls: string[];
+  learningNotes: string[];
+  position?: PositionSnapshot;
+  createdAt?: string;
+};
+
+export type TradePlanResult = {
+  id: string;
+  status: string;
+  generatedAt: string;
+  createdAt: string;
+  inputSummary: {
+    opportunityCount: number;
+    positionCount: number;
+    learningNoteCount: number;
+    watchlist: string[];
+    advisoryOnly: boolean;
+  };
+  items: TradePlanItemSummary[];
+};

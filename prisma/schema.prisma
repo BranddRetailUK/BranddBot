@@ -135,3 +135,40 @@ model Opportunity {
   @@index([score])
   @@index([expiresAt])
 }
+
+model TradePlan {
+  id               String          @id @default(cuid())
+  status           String          @default("active")
+  inputSummaryJson String
+  generatedAt      DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+  items            TradePlanItem[]
+
+  @@index([status, generatedAt])
+  @@index([generatedAt])
+}
+
+model TradePlanItem {
+  id                 String    @id @default(cuid())
+  planId             String
+  plan               TradePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  rank               Int
+  symbol             String
+  suggestedAction    String
+  thesis             String
+  catalyst           String
+  confidence         Float
+  score              Float
+  riskNotesJson      String
+  eligibleForRsi     Boolean
+  tradableNow        Boolean
+  tradabilityReason  String
+  opportunityIdsJson String
+  sourceUrlsJson     String
+  learningNotesJson  String
+  positionJson       String?
+  createdAt          DateTime  @default(now())
+
+  @@index([planId, rank])
+  @@index([symbol, createdAt])
+}

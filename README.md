@@ -6,11 +6,12 @@ This project is an experiment scaffold, not financial advice. Keep it in paper m
 
 ## What Is Included
 
-- Next.js dashboard with separate pages for overview, AI decisions, paper trades, research, and beginner trading definitions.
+- Next.js dashboard with separate pages for overview, trade plans, AI decisions, paper trades, research, and beginner trading definitions.
 - RSI baseline strategy with OpenAI reasoning that can only block, hold, or agree with deterministic RSI signals.
 - Alpaca paper broker integration for account, positions, orders, IEX market data, fill reconciliation, and Alpaca News research.
 - Postgres/Prisma persistence for market snapshots, signals, AI audits, trades, learning notes, research items, and opportunities.
 - Research crawler that stores source-backed opportunities as advisory context only.
+- Trade plan builder that ranks opportunities against current paper positions and learning notes before anything is eligible for RSI scanning.
 - Mockable services and tests for OpenAI parsing, risk gates, and scan flow.
 - Git-ready defaults with `.env` ignored.
 
@@ -43,6 +44,7 @@ npm run bot:scan -- --paper
 npm run bot:worker
 npm run bot:reconcile
 npm run research:crawl
+npm run plan:generate
 npm run test
 npm run lint
 npm run build
@@ -50,7 +52,7 @@ npm run build
 
 `npm run bot:scan` runs a dry scan. Add `-- --paper` to allow a paper order if the RSI signal, OpenAI decision, and risk gates all approve it.
 
-`npm run bot:reconcile` checks Alpaca for order fills and updates paper trade outcomes. `npm run research:crawl` imports Alpaca News, stores source links, and creates active opportunities for the dashboard and AI context.
+`npm run bot:reconcile` checks Alpaca for order fills and updates paper trade outcomes. `npm run research:crawl` imports Alpaca News, stores source links, and creates active opportunities for the dashboard and AI context. `npm run plan:generate` builds an advisory trade plan from active opportunities, current paper positions, and recent learning notes.
 
 ## Railway Services
 
@@ -59,6 +61,7 @@ Use the same repository for each service, with different start commands:
 - Web dashboard: `npm start`, with pre-deploy `npm run db:push`
 - Market worker: `npm run bot:worker`
 - Research cron: `npm run research:crawl`
+- Trade plan cron: `npm run plan:generate`
 - Reconciliation cron, optional if not using the worker: `npm run bot:reconcile`
 
 The Railway project shape is defined in `.railway/railway.ts`. Run `railway config plan` before changing it, and apply only after confirming the plan has no unexpected deletes.
@@ -71,9 +74,11 @@ The Railway project shape is defined in `.railway/railway.ts`. Run `railway conf
 - Missing Alpaca credentials block broker actions.
 - The dashboard emergency stop disables the worker flag and cancels open Alpaca paper orders when credentials are available.
 - Research opportunities are advisory only and cannot bypass RSI or risk-gate approval.
+- Trade plan items are advisory only. They rank candidates and explain tradability, but they cannot place orders or bypass RSI, OpenAI review, or the risk gate.
 
 ## Future Work
 
 - Add historical backtests and walk-forward evaluation before considering any live mode.
 - Add richer learning metrics based on closed trade P&L, hold time, drawdown, and missed opportunities.
 - Add more research sources only through APIs/RSS/allowed feeds with source URLs and timestamps.
+- Redesign the safety model before letting positive research opportunities directly trigger paper entries; that future mode should stay paper-only, risk-limited, auditable, and source-backed.

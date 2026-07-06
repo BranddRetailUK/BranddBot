@@ -4,7 +4,7 @@ repo:
   name: ai-rsi-trading-bot
   product_name: BranddBot
   description: AI-gated RSI paper-trading bot for US stocks/ETFs with outcome learning and source-backed research.
-  status: paper_trading_research_scaffold
+  status: paper_trading_research_plan_scaffold
   language: TypeScript
   module_system: ESM
   framework: Next.js App Router
@@ -36,6 +36,7 @@ package:
     bot_worker: "node --import tsx scripts/worker.ts"
     bot_reconcile: "node --import tsx scripts/reconcile-trades.ts"
     research_crawl: "node --import tsx scripts/research-crawl.ts"
+    plan_generate: "node --import tsx scripts/generate-plan.ts"
     health_alpaca: "node --import tsx scripts/alpaca-health.ts"
   deps:
     next: "^16.2.10"
@@ -214,6 +215,15 @@ data_model:
       fields: [id, symbol, direction, thesis, catalyst, confidence, score, sourceItemIdsJson, riskFlagsJson, status, firstSeenAt, lastSeenAt, expiresAt, createdAt]
       indexes: [[symbol, status, expiresAt], [score], [expiresAt]]
       use: Stores active or expired research-derived market opportunities.
+    TradePlan:
+      fields: [id, status, inputSummaryJson, generatedAt, createdAt]
+      indexes: [[status, generatedAt], [generatedAt]]
+      use: Stores a generated advisory trade plan. New generated plans supersede previous active plans.
+    TradePlanItem:
+      fields: [id, planId, rank, symbol, suggestedAction, thesis, catalyst, confidence, score, riskNotesJson, eligibleForRsi, tradableNow, tradabilityReason, opportunityIdsJson, sourceUrlsJson, learningNotesJson, positionJson, createdAt]
+      indexes: [[planId, rank], [symbol, createdAt]]
+      relation: TradePlanItem.planId -> TradePlan.id cascade delete
+      use: Stores ranked beginner-readable plan candidates. Items are advisory and cannot place trades.
 
 type_contract:
   source: lib/types/trading.ts
@@ -242,6 +252,9 @@ type_contract:
     ResearchAnalysis: { sentiment, catalyst, thesis, confidence, score, riskFlags, expiresAt }
     ResearchCrawlResult: { startedAt, finishedAt, source, scannedArticles, storedItems, updatedItems, opportunitiesCreated, opportunitiesUpdated, symbols }
     ReconcileResult: { startedAt, finishedAt, checkedTrades, updatedOrders, closedTrades, learningEvents }
+    TradePlanSuggestedAction: ["watch", "buy_candidate", "sell_candidate", "avoid"]
+    TradePlanItemSummary: { rank, symbol, suggestedAction, thesis, catalyst, confidence, score, riskNotes, eligibleForRsi, tradableNow, tradabilityReason, opportunityIds, sourceUrls, learningNotes, position? }
+    TradePlanResult: { id, status, generatedAt, createdAt, inputSummary, items }
 
 strategy_contract:
   source: lib/strategy/rsi.ts
@@ -405,6 +418,37 @@ research_contract:
   invariant:
     Research opportunities are advisory context only. They cannot create or approve trades without RSI and risk-gate alignment.
 
+trade_plan_contract:
+  source: lib/plan/builder.ts
+  function: buildTradePlan
+  script: npm run plan:generate
+  inputs:
+    - Active Opportunity rows where status=active and expiresAt > now.
+    - Current paper positions from AlpacaBroker.getPositions when Alpaca credentials are configured; falls back to no positions if unavailable.
+    - Recent LearningEvent rows for candidate symbols.
+    - BotRuntimeConfig watchlist and risk limits.
+  ranking:
+    - Candidate symbols come from active opportunities plus current long positions.
+    - Net research score sums opportunity scores per symbol and clamps to [-1, 1].
+    - Suggested action is buy_candidate for positive research without an existing position, sell_candidate for negative research with an existing long position, avoid for negative research without a long position, and watch otherwise.
+    - Confidence blends strongest opportunity confidence, absolute net research score, source count, and recent learning rewards.
+    - Items are sorted by plan score, action priority, then symbol.
+  fields:
+    item:
+      - candidate symbol
+      - beginner-readable thesis
+      - catalyst/news reason plus stored source URLs
+      - confidence and score
+      - suggested action: watch/buy_candidate/sell_candidate/avoid
+      - risk notes from opportunity risk flags, watchlist eligibility, current position, and learning signals
+      - eligibleForRsi: symbol is in WATCHLIST
+      - tradableNow/tradabilityReason: high-level paper eligibility explanation only
+  persistence:
+    - buildTradePlan supersedes prior active TradePlan rows and creates one active TradePlan with TradePlanItem children.
+    - getLatestTradePlan reads the newest generated plan with items ordered by rank.
+  invariant:
+    Trade plans are advisory only. Plan items do not submit orders, do not invoke risk gate acceptance, and are not called from runBotScan.
+
 risk_gate_contract:
   source: lib/bot/risk.ts
   function: evaluateRiskGate
@@ -522,13 +566,20 @@ api_contract:
     POST /api/orders/cancel-all:
       source: app/api/orders/cancel-all/route.ts
       behavior: healthCheck then cancel all Alpaca paper orders; status 400 if health fails.
+    GET /api/plan:
+      source: app/api/plan/route.ts
+      behavior: returns latest generated TradePlan with ranked TradePlanItem summaries, or null if none exists.
+    POST /api/plan:
+      source: app/api/plan/route.ts
+      body: { maxItems?: number }
+      behavior: buildTradePlan and return persisted advisory plan; status 500 on error. Does not place trades.
 
 ui_contract:
   dashboard:
     layout:
       source: app/dashboard/layout.tsx
       nav_source: app/dashboard/DashboardNav.tsx
-      top_nav_routes: [/dashboard, /dashboard/decisions, /dashboard/trades, /dashboard/research, /dashboard/guide]
+      top_nav_routes: [/dashboard, /dashboard/plan, /dashboard/decisions, /dashboard/trades, /dashboard/research, /dashboard/guide]
     overview:
       source: app/dashboard/page.tsx
       route: /dashboard
@@ -550,6 +601,17 @@ ui_contract:
       route: /dashboard/decisions
       dynamic: force-dynamic
       displays: Recent AiAudit rows with decision, confidence, accepted status, rationale, rejection reasons.
+    plan:
+      source: app/dashboard/plan/page.tsx
+      route: /dashboard/plan
+      dynamic: force-dynamic
+      controls_source: app/dashboard/plan/PlanControls.tsx
+      controls:
+        Generate Plan: POST /api/plan
+      displays:
+        - Latest TradePlan generated timestamp and advisory-only badges.
+        - Plan item metrics for total items, RSI eligible items, and tradable candidates.
+        - Ranked table with candidate symbol, suggested action, confidence, thesis, catalyst/news reason, source links, risk notes, RSI eligibility, tradableNow, and tradability reason.
     trades:
       source: app/dashboard/trades/page.tsx
       route: /dashboard/trades
@@ -595,6 +657,8 @@ cli_contract:
       behavior: run reconcileTrades; optional `--days=N`; print ReconcileResult JSON.
     scripts/research-crawl.ts:
       behavior: run runResearchCrawl; optional `--symbols=AAPL,MSFT`, `--limit=N`, `--lookback-hours=N`; print ResearchCrawlResult JSON.
+    scripts/generate-plan.ts:
+      behavior: run buildTradePlan; optional `--max-items=N`; print TradePlanResult JSON. Advisory only; does not scan RSI or place orders.
     scripts/db-push.mjs:
       behavior: direct Prisma db push wrapper used by npm run db:push.
 
@@ -622,6 +686,11 @@ railway_runtime_contract:
       build_command: npm run build
       cron_schedule_utc: "*/30 12-21 * * 1-5"
       purpose: Scheduled source-backed research ingestion; should exit when complete.
+    plan_cron:
+      start_command: npm run plan:generate
+      build_command: npm run build
+      cron_schedule_utc: "5,35 12-21 * * 1-5"
+      purpose: Scheduled advisory plan generation shortly after research ingestion; should exit when complete.
     reconcile_cron_optional:
       start_command: npm run bot:reconcile
       build_command: npm run build
@@ -629,7 +698,7 @@ railway_runtime_contract:
       purpose: Scheduled reconciliation when not relying only on worker.
   database: Railway PostgreSQL via DATABASE_URL.
   database_volume: branddbot-postgres-volume must remain represented in .railway/railway.ts to avoid destructive volume deletion plans.
-  service_variables: DATABASE_URL is preserved in .railway/railway.ts; OpenAI and Alpaca secrets must remain Railway variables or be set in Railway without committing values.
+  service_variables: Existing runtime variables are preserved in .railway/railway.ts with preserve(); OpenAI and Alpaca secrets must remain Railway variables or be set in Railway without committing values. BranddBot Plan Cron receives references to the BranddBot web service runtime variables.
   build_command: npm run build
   deploy_source: GitHub auto-deploy after push to main.
 
@@ -639,6 +708,7 @@ safety_invariants:
   - `TRADING_MODE=live` or `LIVE_TRADING_ENABLED=true` must not submit orders unless the risk model is explicitly redesigned.
   - OpenAI cannot create a buy/sell contrary to deterministic RSI.
   - Risk gate must require exact AI alignment with deterministic buy/sell.
+  - Trade plans cannot create buy/sell orders and cannot bypass deterministic RSI, OpenAI review, or the risk gate.
   - Deterministic hold always prevents order creation.
   - Dry scan must never submit broker orders.
   - Paper scan can submit only when RSI, AI, and risk gates all accept.
@@ -654,6 +724,7 @@ training_learning_current:
     - reconcileTrades updates paper order fills and creates LearningEvent(source=alpaca_reconciliation) when filled sells close prior buys.
     - Future scans include up to 5 active researchBriefs for same symbol in TradingContext.
     - Research crawler stores source-backed ResearchItem rows and active Opportunity rows from Alpaca News.
+    - Trade plan generation ranks active opportunities with current paper positions and recent LearningEvent rows, then stores advisory TradePlanItem rows for dashboard review.
   limitations:
     - Closed-trade reconciliation is first-pass FIFO-style matching and does not yet track partial lot remaining quantity.
     - Some learning rewards are still model-estimated until a trade closes and reconciliation creates outcome events.
@@ -662,6 +733,7 @@ training_learning_current:
     - Research scoring is deterministic keyword scoring, not a trained market model.
     - Research source coverage is currently Alpaca News only.
     - Opportunity discovery uses RESEARCH_SYMBOLS or WATCHLIST fallback; it does not crawl arbitrary websites.
+    - Trade plans are advisory and do not yet make positive research opportunities directly place paper trades.
 
 intended_next_phase:
   user_goal: Run an RSI bot that learns from trades and does web research to find potential market opportunities.
@@ -673,6 +745,7 @@ intended_next_phase:
     5: Add lot-level remaining quantity tracking for partial exits.
     6: Add more allowed research feeds with source URLs, timestamps, symbols, thesis, catalysts, risk flags, confidence, and expiry.
     7: Add opportunity watchlist expansion as advisory only; deterministic strategy and risk gates still decide entries.
+    8: If research-driven positive opportunities should trigger paper entries, redesign the safety model first so execution remains paper-only, risk-limited, auditable, and cannot be forced by unsourced research.
   research_safety:
     - Web research can propose symbols or catalysts but must not bypass deterministic RSI or risk gates.
     - Research data must be timestamped because market/news data decays quickly.
@@ -685,6 +758,8 @@ test_contract:
       covers: scan flow with MockBroker, dryRun/order behavior, risk blocks.
     tests/ai-reasoning.test.ts:
       covers: AI parse/schema behavior and fallback paths.
+    tests/plan-builder.test.ts:
+      covers: advisory trade plan ranking, RSI eligibility, tradability explanations, and sell-candidate generation for negative research on an existing position.
     tests/helpers.ts:
       covers: test env defaults.
   required_verification:
