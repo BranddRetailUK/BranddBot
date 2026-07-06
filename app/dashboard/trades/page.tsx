@@ -1,11 +1,14 @@
 import { prisma } from "@/lib/db/prisma";
+import { getPortfolioHistory } from "@/lib/portfolio/snapshots";
+import { PortfolioValueChart } from "@/app/dashboard/trades/PortfolioValueChart";
 
 export const dynamic = "force-dynamic";
 
 export default async function TradesPage() {
-  const [trades, learningEvents] = await Promise.all([
+  const [trades, learningEvents, portfolioHistory] = await Promise.all([
     prisma.trade.findMany({ orderBy: { createdAt: "desc" }, take: 50 }).catch(() => []),
-    prisma.learningEvent.findMany({ orderBy: { createdAt: "desc" }, take: 12 }).catch(() => [])
+    prisma.learningEvent.findMany({ orderBy: { createdAt: "desc" }, take: 12 }).catch(() => []),
+    getPortfolioHistory({ refresh: false, rangeHours: 24 }).catch(() => undefined)
   ]);
 
   const closedTrades = trades.filter((trade) => trade.closedAt);
@@ -19,6 +22,8 @@ export default async function TradesPage() {
         <Metric label="Realized P/L" value={formatUsd(realizedPnl)} />
         <Metric label="Learning Notes" value={String(learningEvents.length)} />
       </section>
+
+      <PortfolioValueChart initialHistory={portfolioHistory} />
 
       <section className="panel">
         <div className="panelHeader">

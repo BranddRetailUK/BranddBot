@@ -7,9 +7,11 @@ This project is an experiment scaffold, not financial advice. Keep it in paper m
 ## What Is Included
 
 - Next.js dashboard with separate pages for overview, trade plans, AI decisions, paper trades, research, and beginner trading definitions.
+- Live portfolio value graph on the trades dashboard, backed by Alpaca paper account snapshots and browser polling.
 - RSI baseline strategy with OpenAI reasoning that can only block, hold, or agree with deterministic RSI signals.
 - Alpaca paper broker integration for account, positions, orders, IEX market data, fill reconciliation, and Alpaca News research.
 - Postgres/Prisma persistence for market snapshots, signals, AI audits, trades, learning notes, research items, and opportunities.
+- Portfolio snapshots for paper account value, cash, buying power, unrealized P/L, and open-position count.
 - Research crawler that stores source-backed opportunities for AI context, plans, and optional paper-only research auto-trading.
 - Trade plan builder that ranks opportunities against current paper positions and learning notes before anything is eligible for RSI scanning.
 - Optional research auto-trade executor that can submit small Alpaca paper orders from positive source-backed opportunities while keeping RSI/OpenAI execution unchanged.

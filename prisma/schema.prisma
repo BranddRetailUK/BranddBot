@@ -25,6 +25,19 @@ model MarketSnapshot {
   @@index([symbol, createdAt])
 }
 
+model PortfolioSnapshot {
+  id                 String   @id @default(cuid())
+  portfolioValue     Float
+  cash               Float
+  buyingPower        Float
+  longMarketValue    Float
+  unrealizedPnl      Float
+  openPositionsCount Int
+  createdAt          DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model Signal {
   id                  String   @id @default(cuid())
   symbol              String

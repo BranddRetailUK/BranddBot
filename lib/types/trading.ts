@@ -29,6 +29,28 @@ export type PositionSnapshot = {
   unrealizedPnl: number;
 };
 
+export type PortfolioSnapshotPoint = {
+  id?: string;
+  portfolioValue: number;
+  cash: number;
+  buyingPower: number;
+  longMarketValue: number;
+  unrealizedPnl: number;
+  openPositionsCount: number;
+  createdAt: string;
+};
+
+export type PortfolioHistoryResult = {
+  generatedAt: string;
+  rangeHours: number;
+  points: PortfolioSnapshotPoint[];
+  latest?: PortfolioSnapshotPoint;
+  baselineValue?: number;
+  change?: number;
+  changePercent?: number;
+  error?: string;
+};
+
 export type OrderRequest = {
   symbol: string;
   side: OrderSide;

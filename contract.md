@@ -225,6 +225,10 @@ data_model:
       fields: [id, symbol, timeframe, price, rsi, barsJson, createdAt]
       indexes: [[symbol, createdAt]]
       use: Persist scan market data and raw bars JSON.
+    PortfolioSnapshot:
+      fields: [id, portfolioValue, cash, buyingPower, longMarketValue, unrealizedPnl, openPositionsCount, createdAt]
+      indexes: [[createdAt]]
+      use: Stores paper account value snapshots for live portfolio value/P&L charting.
     Signal:
       fields: [id, symbol, action, confidence, rsi, reason, recommendedNotional, createdAt]
       indexes: [[symbol, createdAt]]
@@ -270,6 +274,8 @@ type_contract:
     MarketBar: { timestamp, open, high, low, close, volume }
     AccountSnapshot: { id?, status?, currency?, buyingPower, cash, portfolioValue }
     PositionSnapshot: { symbol, qty, marketValue, avgEntryPrice, unrealizedPnl }
+    PortfolioSnapshotPoint: { id?, portfolioValue, cash, buyingPower, longMarketValue, unrealizedPnl, openPositionsCount, createdAt }
+    PortfolioHistoryResult: { generatedAt, rangeHours, points, latest?, baselineValue?, change?, changePercent?, error? }
     OrderRequest: { symbol, side, notional?, qty?, type?, timeInForce?, clientOrderId? }
     OrderResult: { id, symbol, side, status, notional?, qty?, filledAvgPrice? }
     BrokerOrderSnapshot: OrderResult plus { filledAt?, submittedAt? }
@@ -431,6 +437,28 @@ reconciliation_contract:
     formula: clamp(realizedPnl / sellNotional, -1, 1)
   limitation:
     matching_model: FIFO-style first pass; partial buy lots are not yet tracked with remaining quantity.
+
+portfolio_snapshot_contract:
+  source: lib/portfolio/snapshots.ts
+  functions:
+    recordPortfolioSnapshot:
+      input: optional broker, minIntervalSeconds default 10, now
+      behavior:
+        - Reuses the latest PortfolioSnapshot without broker calls when it is newer than minIntervalSeconds.
+        - Otherwise reads AlpacaBroker.getAccount and getPositions.
+        - Persists portfolioValue, cash, buyingPower, longMarketValue, unrealizedPnl, openPositionsCount, createdAt.
+    getPortfolioHistory:
+      input: rangeHours default 24 clamped 1..168, refresh default true, minIntervalSeconds.
+      behavior:
+        - Optionally records a fresh snapshot before reading history.
+        - Returns snapshots in ascending time order for the requested range.
+        - Calculates baselineValue from the first point, latest point, change, and changePercent.
+        - Returns an error string with available history if refresh fails.
+    summarizePortfolioPositions:
+      behavior: sums long market value, unrealized P/L, and open long position count from broker positions.
+  consumers:
+    - GET /api/portfolio/history for dashboard polling.
+    - scripts/worker.ts records a snapshot once per enabled loop with minIntervalSeconds=45.
 
 research_contract:
   sources: [lib/research/alpacaNews.ts, lib/research/scoring.ts, lib/research/crawl.ts]
@@ -636,6 +664,10 @@ api_contract:
     GET /api/account:
       source: app/api/account/route.ts
       behavior: healthCheck then account and positions; status 400 if health fails.
+    GET /api/portfolio/history:
+      source: app/api/portfolio/history/route.ts
+      query: { rangeHours?: number }
+      behavior: refreshes a throttled Alpaca paper portfolio snapshot, then returns PortfolioHistoryResult for the requested range; status 500 on unrecoverable error.
     POST /api/bot/scan:
       source: app/api/bot/scan/route.ts
       body: { dryRun?: boolean }
@@ -704,7 +736,13 @@ ui_contract:
       source: app/dashboard/trades/page.tsx
       route: /dashboard/trades
       dynamic: force-dynamic
-      displays: Trade records including strategy, closed trade count, realized P/L, recent LearningEvent rows.
+      chart_source: app/dashboard/trades/PortfolioValueChart.tsx
+      displays: Trade records including strategy, closed trade count, realized P/L, recent LearningEvent rows, and a live portfolio value/P&L graph below the KPI cards.
+      chart_behavior:
+        - Server page seeds the chart with getPortfolioHistory(refresh=false, rangeHours=24).
+        - Client chart polls GET /api/portfolio/history every 15 seconds without requiring page reload.
+        - Range buttons show 6H, 24H, and 3D windows.
+        - Chart displays current portfolio value, P/L in range, unrealized P/L, cash, latest timestamp, and Alpaca refresh errors when present.
     research:
       source: app/dashboard/research/page.tsx
       route: /dashboard/research
@@ -740,7 +778,7 @@ cli_contract:
     scripts/run-scan.ts:
       behavior: runBotScan; default dryRun true; `--paper` sets dryRun false; print ScanResult JSON.
     scripts/worker.ts:
-      behavior: infinite loop; reads BotConfig enabled; if enabled reconcileTrades, runResearchAutoTrade dryRun false, runBotScan dryRun false, reconcileTrades again; logs reconciliation, research auto-trade item outcomes, and per-symbol RSI final action/accepted; sleeps pollIntervalSeconds.
+      behavior: infinite loop; reads BotConfig enabled; if enabled reconcileTrades, recordPortfolioSnapshot, runResearchAutoTrade dryRun false, runBotScan dryRun false, reconcileTrades again; logs portfolio snapshot, reconciliation, research auto-trade item outcomes, and per-symbol RSI final action/accepted; sleeps pollIntervalSeconds.
     scripts/reconcile-trades.ts:
       behavior: run reconcileTrades; optional `--days=N`; print ReconcileResult JSON.
     scripts/research-crawl.ts:
@@ -856,6 +894,8 @@ test_contract:
       covers: advisory trade plan ranking, RSI eligibility, tradability explanations, and sell-candidate generation for negative research on an existing position.
     tests/research-auto-trade.test.ts:
       covers: paper-only research order selection outside WATCHLIST, live-mode block, and broker submission when enabled.
+    tests/portfolio-snapshots.test.ts:
+      covers: portfolio position summary math for long market value, unrealized P/L, and open position count.
     tests/helpers.ts:
       covers: test env defaults.
   required_verification:
@@ -870,7 +910,7 @@ known_runtime_state_2026_07_06:
     npm_run_db_generate: ok
     npm_run_db_push: db already in sync
     npm_run_bot_scan: ok dryRun true; no orders; held/blocked due insufficient 5Min bars before market open
-    npm_run_test: 4 files passed, 10 tests passed
+    npm_run_test: 5 files passed, 11 tests passed
     npm_run_lint: ok
     npm_run_build: ok
     localhost_dashboard: http://localhost:3000/dashboard returned 200

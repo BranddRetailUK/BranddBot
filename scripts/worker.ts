@@ -3,6 +3,7 @@ import { runResearchAutoTrade } from "@/lib/bot/researchAutoTrade";
 import { runBotScan } from "@/lib/bot/scan";
 import { getBotRuntimeConfig, getResearchAutoTradeRuntimeConfig } from "@/lib/config/env";
 import { getBotEnabled } from "@/lib/db/botConfig";
+import { recordPortfolioSnapshot } from "@/lib/portfolio/snapshots";
 
 const config = getBotRuntimeConfig();
 const researchAutoTradeConfig = getResearchAutoTradeRuntimeConfig();
@@ -18,6 +19,17 @@ while (true) {
   if (enabled) {
     try {
       const beforeScan = await reconcileTrades();
+      const portfolioSnapshot = await recordPortfolioSnapshot({ minIntervalSeconds: 45 })
+        .then((snapshot) => ({
+          portfolioValue: snapshot.portfolioValue,
+          cash: snapshot.cash,
+          unrealizedPnl: snapshot.unrealizedPnl,
+          openPositionsCount: snapshot.openPositionsCount,
+          createdAt: snapshot.createdAt
+        }))
+        .catch((error) => ({
+          error: error instanceof Error ? error.message : "Portfolio snapshot failed."
+        }));
       const researchAutoTrade = await runResearchAutoTrade({
         dryRun: false,
         config,
@@ -33,6 +45,7 @@ while (true) {
               beforeScan,
               afterScan
             },
+            portfolioSnapshot,
             researchAutoTrade: {
               enabled: researchAutoTrade.enabled,
               submittedOrders: researchAutoTrade.submittedOrders,
