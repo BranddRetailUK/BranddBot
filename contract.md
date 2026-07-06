@@ -698,7 +698,7 @@ railway_runtime_contract:
       purpose: Scheduled reconciliation when not relying only on worker.
   database: Railway PostgreSQL via DATABASE_URL.
   database_volume: branddbot-postgres-volume must remain represented in .railway/railway.ts to avoid destructive volume deletion plans.
-  service_variables: Existing runtime variables are preserved in .railway/railway.ts with preserve(); OpenAI and Alpaca secrets must remain Railway variables or be set in Railway without committing values. BranddBot Plan Cron receives references to the BranddBot web service runtime variables.
+  service_variables: Existing runtime variables are preserved in .railway/railway.ts with preserve(); OpenAI and Alpaca secrets must remain Railway variables or be set in Railway without committing values. BranddBot Plan Cron preserves its own runtime variables without committing values.
   build_command: npm run build
   deploy_source: GitHub auto-deploy after push to main.
 

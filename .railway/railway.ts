@@ -81,31 +81,7 @@ export default defineRailway(() => {
       restartPolicyType: "NEVER"
     },
     networking: { privateNetworkEndpoint: "branddbot-plan-cron" },
-    env: {
-      DATABASE_URL: web.env.DATABASE_URL,
-      OPENAI_API_KEY: web.env.OPENAI_API_KEY,
-      OPENAI_MODEL: web.env.OPENAI_MODEL,
-      OPENAI_REASONING_EFFORT: web.env.OPENAI_REASONING_EFFORT,
-      OPENAI_TEXT_VERBOSITY: web.env.OPENAI_TEXT_VERBOSITY,
-      OPENAI_STORE_RESPONSES: web.env.OPENAI_STORE_RESPONSES,
-      APCA_API_KEY_ID: web.env.APCA_API_KEY_ID,
-      APCA_API_SECRET_KEY: web.env.APCA_API_SECRET_KEY,
-      APCA_API_BASE_URL: web.env.APCA_API_BASE_URL,
-      ALPACA_DATA_BASE_URL: web.env.ALPACA_DATA_BASE_URL,
-      TRADING_MODE: web.env.TRADING_MODE,
-      LIVE_TRADING_ENABLED: web.env.LIVE_TRADING_ENABLED,
-      WATCHLIST: web.env.WATCHLIST,
-      RSI_PERIOD: web.env.RSI_PERIOD,
-      RSI_TIMEFRAME: web.env.RSI_TIMEFRAME,
-      RSI_OVERSOLD: web.env.RSI_OVERSOLD,
-      RSI_OVERBOUGHT: web.env.RSI_OVERBOUGHT,
-      MIN_AI_CONFIDENCE: web.env.MIN_AI_CONFIDENCE,
-      MAX_NOTIONAL_PER_ORDER: web.env.MAX_NOTIONAL_PER_ORDER,
-      MAX_POSITION_NOTIONAL_PER_SYMBOL: web.env.MAX_POSITION_NOTIONAL_PER_SYMBOL,
-      MAX_DAILY_LOSS_USD: web.env.MAX_DAILY_LOSS_USD,
-      MAX_OPEN_POSITIONS: web.env.MAX_OPEN_POSITIONS,
-      BOT_POLL_INTERVAL_SECONDS: web.env.BOT_POLL_INTERVAL_SECONDS
-    }
+    env: preservedRuntimeEnv()
   });
 
   const reconcileCron = service("BranddBot Reconcile Cron", {
