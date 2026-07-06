@@ -10,8 +10,9 @@ This project is an experiment scaffold, not financial advice. Keep it in paper m
 - RSI baseline strategy with OpenAI reasoning that can only block, hold, or agree with deterministic RSI signals.
 - Alpaca paper broker integration for account, positions, orders, IEX market data, fill reconciliation, and Alpaca News research.
 - Postgres/Prisma persistence for market snapshots, signals, AI audits, trades, learning notes, research items, and opportunities.
-- Research crawler that stores source-backed opportunities as advisory context only.
+- Research crawler that stores source-backed opportunities for AI context, plans, and optional paper-only research auto-trading.
 - Trade plan builder that ranks opportunities against current paper positions and learning notes before anything is eligible for RSI scanning.
+- Optional research auto-trade executor that can submit small Alpaca paper orders from positive source-backed opportunities while keeping RSI/OpenAI execution unchanged.
 - Mockable services and tests for OpenAI parsing, risk gates, and scan flow.
 - Git-ready defaults with `.env` ignored.
 
@@ -44,6 +45,7 @@ npm run bot:scan -- --paper
 npm run bot:worker
 npm run bot:reconcile
 npm run research:crawl
+npm run research:auto-trade
 npm run plan:generate
 npm run test
 npm run lint
@@ -52,7 +54,7 @@ npm run build
 
 `npm run bot:scan` runs a dry scan. Add `-- --paper` to allow a paper order if the RSI signal, OpenAI decision, and risk gates all approve it.
 
-`npm run bot:reconcile` checks Alpaca for order fills and updates paper trade outcomes. `npm run research:crawl` imports Alpaca News, stores source links, and creates active opportunities for the dashboard and AI context. `npm run plan:generate` builds an advisory trade plan from active opportunities, current paper positions, and recent learning notes.
+`npm run bot:reconcile` checks Alpaca for order fills and updates paper trade outcomes. `npm run research:crawl` imports Alpaca News, stores source links, and creates active opportunities for the dashboard and AI context. `npm run research:auto-trade` runs the paper-only research executor once; add `-- --dry-run` to preview accepted candidates without orders. `npm run plan:generate` builds an advisory trade plan from active opportunities, current paper positions, and recent learning notes.
 
 ## Railway Services
 
@@ -66,14 +68,26 @@ Use the same repository for each service, with different start commands:
 
 The Railway project shape is defined in `.railway/railway.ts`. Run `railway config plan` before changing it, and apply only after confirming the plan has no unexpected deletes.
 
+For high-frequency paper learning, the worker can run every 60 seconds and call the research auto-trade executor before the RSI scan. Useful non-secret runtime variables:
+
+- `RESEARCH_AUTO_TRADE_ENABLED=true`
+- `RESEARCH_AUTO_TRADE_NOTIONAL=1`
+- `RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN=1`
+- `RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS=25`
+- `RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS=100`
+- `RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES=60`
+- `BOT_POLL_INTERVAL_SECONDS=60`
+
 ## Safety Model
 
 - OpenAI cannot override deterministic RSI strategy output.
 - OpenAI cannot bypass max notional, max symbol exposure, max daily loss, watchlist, or paper-only mode.
+- Broker order paths require `APCA_API_BASE_URL` to be an Alpaca paper endpoint.
 - Missing OpenAI credentials block AI-gated execution.
 - Missing Alpaca credentials block broker actions.
 - The dashboard emergency stop disables the worker flag and cancels open Alpaca paper orders when credentials are available.
-- Research opportunities are advisory only and cannot bypass RSI or risk-gate approval.
+- Research opportunities cannot bypass live-trading safety. They can submit paper orders only through the explicit research auto-trade executor when enabled.
+- Research auto-trading is paper-only, source-backed, size-limited, cooldown-limited, and recorded with `strategy=research_auto`.
 - Trade plan items are advisory only. They rank candidates and explain tradability, but they cannot place orders or bypass RSI, OpenAI review, or the risk gate.
 
 ## Future Work
@@ -81,4 +95,4 @@ The Railway project shape is defined in `.railway/railway.ts`. Run `railway conf
 - Add historical backtests and walk-forward evaluation before considering any live mode.
 - Add richer learning metrics based on closed trade P&L, hold time, drawdown, and missed opportunities.
 - Add more research sources only through APIs/RSS/allowed feeds with source URLs and timestamps.
-- Redesign the safety model before letting positive research opportunities directly trigger paper entries; that future mode should stay paper-only, risk-limited, auditable, and source-backed.
+- Add a dashboard frequency/risk slider that maps to research auto-trade notional, cadence, candidate count, position cap, and cooldown settings.

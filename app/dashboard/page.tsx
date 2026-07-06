@@ -1,4 +1,4 @@
-import { Activity, Brain, Newspaper, Shield } from "lucide-react";
+import { Activity, Brain, Shield, Zap } from "lucide-react";
 import { BotControls } from "@/app/dashboard/BotControls";
 import { getPublicRuntimeSummary } from "@/lib/config/env";
 import { getBotEnabled } from "@/lib/db/botConfig";
@@ -18,7 +18,7 @@ export default async function DashboardPage() {
   return (
     <>
       <div className="badgeRow pageBadges">
-        <span className={runtime.tradingMode === "paper" ? "badge success" : "badge danger"}>
+        <span className={runtime.tradingMode === "paper" && runtime.paperTradingEndpoint ? "badge success" : "badge danger"}>
           {runtime.tradingMode.toUpperCase()} trading
         </span>
         <span className={runtime.openAiConfigured ? "badge success" : "badge danger"}>
@@ -28,13 +28,24 @@ export default async function DashboardPage() {
           Alpaca {runtime.alpacaConfigured ? "configured" : "missing"}
         </span>
         <span className={enabled ? "badge success" : "badge"}>{enabled ? "Enabled" : "Paused"}</span>
+        <span className={runtime.researchAutoTrade.enabled ? "badge success" : "badge"}>
+          Research auto {runtime.researchAutoTrade.enabled ? "on" : "off"}
+        </span>
       </div>
 
       <section className="grid cards">
         <Metric icon={<Brain size={20} />} label="AI Model" value={runtime.openAiModel} />
         <Metric icon={<Activity size={20} />} label="Watchlist" value={runtime.watchlist.join(", ")} />
         <Metric icon={<Shield size={20} />} label="Max Order" value={`$${runtime.risk.maxNotionalPerOrder}`} />
-        <Metric icon={<Newspaper size={20} />} label="Active Opportunities" value={String(activeOpportunityCount)} />
+        <Metric
+          icon={<Zap size={20} />}
+          label="Research Auto"
+          value={
+            runtime.researchAutoTrade.enabled
+              ? `$${runtime.researchAutoTrade.notionalPerOrder}/order`
+              : "Off"
+          }
+        />
       </section>
 
       <section className="grid two">
@@ -117,6 +128,14 @@ export default async function DashboardPage() {
             </Term>
             <Term title="Research symbols">
               The research crawler is currently looking at {runtime.research.symbols.join(", ")}.
+            </Term>
+            <Term title="Research auto-trading">
+              {runtime.researchAutoTrade.enabled
+                ? `Enabled for up to ${runtime.researchAutoTrade.maxItemsPerRun} paper order(s) per worker run, ${runtime.researchAutoTrade.maxDailyOrders} per day, with a ${runtime.researchAutoTrade.symbolCooldownMinutes} minute symbol cooldown.`
+                : "Disabled. Positive research opportunities will not directly place paper orders."}
+            </Term>
+            <Term title="Active opportunities">
+              {activeOpportunityCount} active source-backed opportunity record(s) are available for plans, AI context, and research auto-trading.
             </Term>
             <Term title="Maximum position per symbol">
               The bot will not intentionally hold more than ${runtime.risk.maxPositionNotionalPerSymbol} of one symbol in

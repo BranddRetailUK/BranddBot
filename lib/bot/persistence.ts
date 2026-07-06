@@ -6,7 +6,8 @@ import type {
   RecentTradeSummary,
   ResearchBrief,
   RiskGateResult,
-  RsiSignal
+  RsiSignal,
+  TradeStrategy
 } from "@/lib/types/trading";
 
 export interface ScanPersistence {
@@ -22,7 +23,7 @@ export interface ScanPersistence {
     riskGate: RiskGateResult;
     tradeOutcome?: OrderResult;
   }): Promise<void>;
-  recordTrade(params: { order: OrderResult; rationale: string }): Promise<void>;
+  recordTrade(params: { order: OrderResult; rationale: string; strategy?: TradeStrategy }): Promise<void>;
 }
 
 export function createPrismaScanPersistence(): ScanPersistence {
@@ -153,6 +154,7 @@ export function createPrismaScanPersistence(): ScanPersistence {
         data: {
           symbol: params.order.symbol,
           side: params.order.side,
+          strategy: params.strategy ?? "rsi_ai",
           qty: params.order.qty,
           notional: params.order.notional,
           price: params.order.filledAvgPrice,

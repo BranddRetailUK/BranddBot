@@ -1,6 +1,7 @@
 export type TradingMode = "paper" | "live";
 export type TradeAction = "buy" | "sell" | "hold" | "block";
 export type OrderSide = "buy" | "sell";
+export type TradeStrategy = "rsi_ai" | "research_auto";
 
 export type MarketBar = {
   timestamp: string;
@@ -89,8 +90,20 @@ export type BotRuntimeConfig = {
   overboughtThreshold: number;
   tradingMode: TradingMode;
   liveTradingEnabled: boolean;
+  paperTradingEndpoint: boolean;
   pollIntervalSeconds: number;
   risk: RiskLimits;
+};
+
+export type ResearchAutoTradeConfig = {
+  enabled: boolean;
+  minConfidence: number;
+  minScore: number;
+  notionalPerOrder: number;
+  maxItemsPerRun: number;
+  maxOpenPositions: number;
+  maxDailyOrders: number;
+  symbolCooldownMinutes: number;
 };
 
 export type RecentTradeSummary = {
@@ -242,6 +255,35 @@ export type ReconcileResult = {
   updatedOrders: number;
   closedTrades: number;
   learningEvents: number;
+};
+
+export type ResearchAutoTradeAction = "buy" | "sell" | "skip";
+
+export type ResearchAutoTradeItemResult = {
+  symbol: string;
+  action: ResearchAutoTradeAction;
+  accepted: boolean;
+  reasons: string[];
+  confidence: number;
+  score: number;
+  thesis: string;
+  catalyst: string;
+  opportunityIds: string[];
+  sourceUrls: string[];
+  orderRequest?: OrderRequest;
+  order?: OrderResult;
+};
+
+export type ResearchAutoTradeResult = {
+  startedAt: string;
+  finishedAt: string;
+  enabled: boolean;
+  dryRun: boolean;
+  tradingMode: TradingMode;
+  submittedOrders: number;
+  candidatesEvaluated: number;
+  config: ResearchAutoTradeConfig;
+  items: ResearchAutoTradeItemResult[];
 };
 
 export type TradePlanSuggestedAction = "watch" | "buy_candidate" | "sell_candidate" | "avoid";

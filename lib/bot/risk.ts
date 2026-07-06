@@ -21,6 +21,10 @@ export function evaluateRiskGate(params: {
     reasons.push("Live trading is disabled in this scaffold; only paper mode can submit orders.");
   }
 
+  if (!config.paperTradingEndpoint) {
+    reasons.push("Alpaca paper endpoint is required before submitting orders.");
+  }
+
   if (!config.watchlist.includes(signal.symbol)) {
     reasons.push(`${signal.symbol} is not in the configured watchlist.`);
   }

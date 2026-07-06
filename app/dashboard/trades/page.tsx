@@ -40,6 +40,7 @@ export default async function TradesPage() {
                 <th>Time</th>
                 <th>Symbol</th>
                 <th>Side</th>
+                <th>Strategy</th>
                 <th>Status</th>
                 <th>Qty</th>
                 <th>Price</th>
@@ -50,7 +51,7 @@ export default async function TradesPage() {
             <tbody>
               {trades.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="muted">
+                  <td colSpan={9} className="muted">
                     No paper trade records yet.
                   </td>
                 </tr>
@@ -60,6 +61,7 @@ export default async function TradesPage() {
                     <td>{trade.createdAt.toLocaleString()}</td>
                     <td>{trade.symbol}</td>
                     <td>{trade.side.toUpperCase()}</td>
+                    <td>{trade.strategy}</td>
                     <td>{trade.status}</td>
                     <td>{trade.qty?.toFixed(4) ?? "-"}</td>
                     <td>{trade.price ? formatUsd(trade.price) : "-"}</td>

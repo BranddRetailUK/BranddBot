@@ -1,11 +1,16 @@
 import { reconcileTrades } from "@/lib/bot/reconcile";
+import { runResearchAutoTrade } from "@/lib/bot/researchAutoTrade";
 import { runBotScan } from "@/lib/bot/scan";
-import { getBotRuntimeConfig } from "@/lib/config/env";
+import { getBotRuntimeConfig, getResearchAutoTradeRuntimeConfig } from "@/lib/config/env";
 import { getBotEnabled } from "@/lib/db/botConfig";
 
 const config = getBotRuntimeConfig();
+const researchAutoTradeConfig = getResearchAutoTradeRuntimeConfig();
 
 console.log(`BranddBot worker started. Poll interval: ${config.pollIntervalSeconds}s`);
+console.log(
+  `Research auto-trading: ${researchAutoTradeConfig.enabled ? "enabled" : "disabled"}; max ${researchAutoTradeConfig.maxItemsPerRun} order(s)/run.`
+);
 
 while (true) {
   const enabled = await getBotEnabled().catch(() => false);
@@ -13,6 +18,11 @@ while (true) {
   if (enabled) {
     try {
       const beforeScan = await reconcileTrades();
+      const researchAutoTrade = await runResearchAutoTrade({
+        dryRun: false,
+        config,
+        researchConfig: researchAutoTradeConfig
+      });
       const result = await runBotScan({ dryRun: false, config });
       const afterScan = await reconcileTrades();
       console.log(
@@ -22,6 +32,17 @@ while (true) {
             reconciled: {
               beforeScan,
               afterScan
+            },
+            researchAutoTrade: {
+              enabled: researchAutoTrade.enabled,
+              submittedOrders: researchAutoTrade.submittedOrders,
+              candidatesEvaluated: researchAutoTrade.candidatesEvaluated,
+              items: researchAutoTrade.items.map((item) => ({
+                symbol: item.symbol,
+                action: item.action,
+                accepted: item.accepted,
+                reasons: item.reasons
+              }))
             },
             symbols: result.symbols.map((symbol) => ({
               symbol: symbol.symbol,

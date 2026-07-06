@@ -64,6 +64,7 @@ model Trade {
   id               String    @id @default(cuid())
   symbol           String
   side             String
+  strategy         String    @default("rsi_ai")
   qty              Float?
   notional         Float?
   price            Float?
@@ -78,6 +79,7 @@ model Trade {
   closedAt         DateTime?
 
   @@index([symbol, createdAt])
+  @@index([strategy, createdAt])
   @@index([orderId])
   @@index([status, createdAt])
 }

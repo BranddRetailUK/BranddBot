@@ -399,10 +399,10 @@ function getTradability(params: {
     };
   }
 
-  if (params.config.tradingMode !== "paper" || params.config.liveTradingEnabled) {
+  if (params.config.tradingMode !== "paper" || params.config.liveTradingEnabled || !params.config.paperTradingEndpoint) {
     return {
       tradableNow: false,
-      reason: "Paper-only safety is not satisfied; live trading remains blocked in this scaffold."
+      reason: "Paper-only safety is not satisfied; live trading and non-paper Alpaca endpoints remain blocked."
     };
   }
 

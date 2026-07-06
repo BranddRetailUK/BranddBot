@@ -24,12 +24,20 @@ export function testEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     MAX_POSITION_NOTIONAL_PER_SYMBOL: 25,
     MAX_DAILY_LOSS_USD: 5,
     MAX_OPEN_POSITIONS: 3,
-    BOT_POLL_INTERVAL_SECONDS: 300,
+    BOT_POLL_INTERVAL_SECONDS: 60,
     RESEARCH_SYMBOLS: "",
     RESEARCH_LOOKBACK_HOURS: 24,
     RESEARCH_NEWS_LIMIT: 50,
     RESEARCH_OPPORTUNITY_TTL_HOURS: 72,
     RESEARCH_MIN_CONFIDENCE: 0.35,
+    RESEARCH_AUTO_TRADE_ENABLED: false,
+    RESEARCH_AUTO_TRADE_MIN_CONFIDENCE: 0.55,
+    RESEARCH_AUTO_TRADE_MIN_SCORE: 0.45,
+    RESEARCH_AUTO_TRADE_NOTIONAL: 1,
+    RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN: 1,
+    RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS: 25,
+    RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS: 100,
+    RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES: 60,
     ...overrides
   };
 }
@@ -43,7 +51,8 @@ export function testConfig(): BotRuntimeConfig {
     overboughtThreshold: 70,
     tradingMode: "paper",
     liveTradingEnabled: false,
-    pollIntervalSeconds: 300,
+    paperTradingEndpoint: true,
+    pollIntervalSeconds: 60,
     risk: {
       maxNotionalPerOrder: 10,
       maxPositionNotionalPerSymbol: 25,

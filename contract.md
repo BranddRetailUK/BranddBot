@@ -4,7 +4,7 @@ repo:
   name: ai-rsi-trading-bot
   product_name: BranddBot
   description: AI-gated RSI paper-trading bot for US stocks/ETFs with outcome learning and source-backed research.
-  status: paper_trading_research_plan_scaffold
+  status: paper_trading_research_auto_trade_scaffold
   language: TypeScript
   module_system: ESM
   framework: Next.js App Router
@@ -36,6 +36,7 @@ package:
     bot_worker: "node --import tsx scripts/worker.ts"
     bot_reconcile: "node --import tsx scripts/reconcile-trades.ts"
     research_crawl: "node --import tsx scripts/research-crawl.ts"
+    research_auto_trade: "node --import tsx scripts/research-auto-trade.ts"
     plan_generate: "node --import tsx scripts/generate-plan.ts"
     health_alpaca: "node --import tsx scripts/alpaca-health.ts"
   deps:
@@ -144,7 +145,7 @@ env_contract:
       runtime_min: 1
     BOT_POLL_INTERVAL_SECONDS:
       type: number_string
-      default: 300
+      default: 60
       runtime_min: 30
     RESEARCH_SYMBOLS:
       type: csv_symbols
@@ -166,6 +167,39 @@ env_contract:
       type: number_string
       default: 0.35
       runtime_clamp: [0, 1]
+    RESEARCH_AUTO_TRADE_ENABLED:
+      type: boolean_string
+      default: false
+      purpose: Enables explicit research-driven paper auto-trading in the worker and script.
+      invariant: Orders are blocked unless TRADING_MODE=paper and LIVE_TRADING_ENABLED=false.
+    RESEARCH_AUTO_TRADE_MIN_CONFIDENCE:
+      type: number_string
+      default: 0.55
+      runtime_clamp: [0, 1]
+    RESEARCH_AUTO_TRADE_MIN_SCORE:
+      type: number_string
+      default: 0.45
+      runtime_clamp: [0, 1]
+    RESEARCH_AUTO_TRADE_NOTIONAL:
+      type: number_string
+      default: 1
+      runtime_min: 1
+    RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN:
+      type: number_string
+      default: 1
+      runtime_min: 1
+    RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS:
+      type: number_string
+      default: 25
+      runtime_min: 1
+    RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS:
+      type: number_string
+      default: 100
+      runtime_min: 1
+    RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES:
+      type: number_string
+      default: 60
+      runtime_min: 0
     DATABASE_URL:
       type: string
       purpose: Prisma PostgreSQL URL, normally Railway Postgres in hosted environments.
@@ -175,6 +209,7 @@ env_contract:
     isAlpacaConfigured: APCA_API_KEY_ID and APCA_API_SECRET_KEY non-empty.
     getBotRuntimeConfig: converts env into BotRuntimeConfig.
     getResearchRuntimeConfig: converts env into research crawler config.
+    getResearchAutoTradeRuntimeConfig: converts env into explicit research paper auto-trade limits.
     getPublicRuntimeSummary: safe dashboard summary without secrets.
 
 data_model:
@@ -199,9 +234,9 @@ data_model:
       indexes: [[symbol, createdAt], [createdAt]]
       use: Full audit of AI decision, risk gate, and optional order result.
     Trade:
-      fields: [id, symbol, side, qty, notional, price, orderId, status, realizedPnl, rationale, tradeOutcomeJson, filledAt, reconciledAt, createdAt, closedAt]
-      indexes: [[symbol, createdAt], [orderId], [status, createdAt]]
-      use: Records submitted paper orders, reconciled fills, and realized outcomes.
+      fields: [id, symbol, side, strategy, qty, notional, price, orderId, status, realizedPnl, rationale, tradeOutcomeJson, filledAt, reconciledAt, createdAt, closedAt]
+      indexes: [[symbol, createdAt], [strategy, createdAt], [orderId], [status, createdAt]]
+      use: Records submitted paper orders, execution strategy/source, reconciled fills, and realized outcomes.
     LearningEvent:
       fields: [id, symbol, reward, summary, source, createdAt]
       indexes: [[symbol, createdAt]]
@@ -231,6 +266,7 @@ type_contract:
     TradingMode: ["paper", "live"]
     TradeAction: ["buy", "sell", "hold", "block"]
     OrderSide: ["buy", "sell"]
+    TradeStrategy: ["rsi_ai", "research_auto"]
     MarketBar: { timestamp, open, high, low, close, volume }
     AccountSnapshot: { id?, status?, currency?, buyingPower, cash, portfolioValue }
     PositionSnapshot: { symbol, qty, marketValue, avgEntryPrice, unrealizedPnl }
@@ -240,7 +276,8 @@ type_contract:
     TradeFillActivity: { id, orderId?, symbol, side, qty, price, transactionTime }
     RsiSignal: { symbol, action: buy_or_sell_or_hold, rsi?, previousRsi?, confidence, reason, recommendedNotional? }
     RiskLimits: { maxNotionalPerOrder, maxPositionNotionalPerSymbol, maxDailyLossUsd, maxOpenPositions, minAiConfidence }
-    BotRuntimeConfig: { watchlist, rsiPeriod, timeframe, oversoldThreshold, overboughtThreshold, tradingMode, liveTradingEnabled, pollIntervalSeconds, risk }
+    BotRuntimeConfig: { watchlist, rsiPeriod, timeframe, oversoldThreshold, overboughtThreshold, tradingMode, liveTradingEnabled, paperTradingEndpoint, pollIntervalSeconds, risk }
+    ResearchAutoTradeConfig: { enabled, minConfidence, minScore, notionalPerOrder, maxItemsPerRun, maxOpenPositions, maxDailyOrders, symbolCooldownMinutes }
     ResearchBrief: { symbol, direction, thesis, catalyst, confidence, score, riskFlags, expiresAt }
     TradingContext: { symbol, generatedAt, currentPrice, barSummary, rsi, deterministicSignal, position?, account, openPositionsCount, recentTrades, realizedPnlToday, riskLimits, priorLessons, researchBriefs }
     AiTradingDecision: { decision, confidence, rationale, riskFlags, learningUpdate, recommendedParameterAdjustments }
@@ -252,6 +289,8 @@ type_contract:
     ResearchAnalysis: { sentiment, catalyst, thesis, confidence, score, riskFlags, expiresAt }
     ResearchCrawlResult: { startedAt, finishedAt, source, scannedArticles, storedItems, updatedItems, opportunitiesCreated, opportunitiesUpdated, symbols }
     ReconcileResult: { startedAt, finishedAt, checkedTrades, updatedOrders, closedTrades, learningEvents }
+    ResearchAutoTradeItemResult: { symbol, action: buy_or_sell_or_skip, accepted, reasons, confidence, score, thesis, catalyst, opportunityIds, sourceUrls, orderRequest?, order? }
+    ResearchAutoTradeResult: { startedAt, finishedAt, enabled, dryRun, tradingMode, submittedOrders, candidatesEvaluated, config, items }
     TradePlanSuggestedAction: ["watch", "buy_candidate", "sell_candidate", "avoid"]
     TradePlanItemSummary: { rank, symbol, suggestedAction, thesis, catalyst, confidence, score, riskNotes, eligibleForRsi, tradableNow, tradabilityReason, opportunityIds, sourceUrls, learningNotes, position? }
     TradePlanResult: { id, status, generatedAt, createdAt, inputSummary, items }
@@ -416,7 +455,7 @@ research_contract:
     positive_terms_examples: [approval, beat, buyback, contract, guidance raised, launch, partnership, upgrade]
     risk_terms_examples: [bankruptcy, downgrade, investigation, lawsuit, miss, probe, recall, warning]
   invariant:
-    Research opportunities are advisory context only. They cannot create or approve trades without RSI and risk-gate alignment.
+    Research opportunities are source-backed inputs for AI context, trade plans, and the explicit research auto-trade executor. They cannot bypass paper-only safety, size limits, cooldowns, or live-trading blocks.
 
 trade_plan_contract:
   source: lib/plan/builder.ts
@@ -442,12 +481,60 @@ trade_plan_contract:
       - suggested action: watch/buy_candidate/sell_candidate/avoid
       - risk notes from opportunity risk flags, watchlist eligibility, current position, and learning signals
       - eligibleForRsi: symbol is in WATCHLIST
-      - tradableNow/tradabilityReason: high-level paper eligibility explanation only
+      - tradableNow/tradabilityReason: high-level paper eligibility explanation only; false when live mode, live enable flag, or non-paper Alpaca endpoint safety is not satisfied
   persistence:
     - buildTradePlan supersedes prior active TradePlan rows and creates one active TradePlan with TradePlanItem children.
     - getLatestTradePlan reads the newest generated plan with items ordered by rank.
   invariant:
     Trade plans are advisory only. Plan items do not submit orders, do not invoke risk gate acceptance, and are not called from runBotScan.
+
+research_auto_trade_contract:
+  source: lib/bot/researchAutoTrade.ts
+  function: runResearchAutoTrade
+  script: npm run research:auto-trade
+  default_state:
+    enabled: false unless RESEARCH_AUTO_TRADE_ENABLED is true
+    worker_cadence: controlled by BOT_POLL_INTERVAL_SECONDS, default 60 seconds
+  inputs:
+    - Active Opportunity rows where status=active and expiresAt > now.
+    - Current paper account and positions from AlpacaBroker.
+    - Recent Trade rows with strategy=research_auto for cooldown checks.
+    - Current-day research_auto trade count for daily cap checks.
+    - Current-day realized P/L for daily loss guard.
+  candidate_rules:
+    - Bullish opportunities with confidence >= RESEARCH_AUTO_TRADE_MIN_CONFIDENCE and score >= RESEARCH_AUTO_TRADE_MIN_SCORE become buy candidates, even when the symbol is outside WATCHLIST.
+    - Bearish opportunities meeting the same absolute thresholds can create sell candidates only for existing long paper positions.
+    - If a held symbol has both bullish and bearish opportunities, the strongest absolute score wins; bearish exits take priority when tied or stronger.
+    - Candidates are sorted by sell priority, absolute score, confidence, then symbol.
+  paper_safety_gates:
+    - config.tradingMode must be paper, config.liveTradingEnabled must be false, and APCA_API_BASE_URL must resolve as a paper endpoint.
+    - Current-day realized P/L must not breach MAX_DAILY_LOSS_USD.
+    - Current-day strategy=research_auto trade count must be below RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS.
+    - Each worker/script run submits at most RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN accepted orders.
+    - New buy positions are capped by RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS.
+    - Per-symbol exposure is capped by MAX_POSITION_NOTIONAL_PER_SYMBOL.
+    - Per-order notional is min(RESEARCH_AUTO_TRADE_NOTIONAL, MAX_NOTIONAL_PER_ORDER, remaining symbol capacity, buying power).
+    - Same-symbol same-side research_auto trades respect RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES.
+  orders:
+    buy:
+      type: market
+      timeInForce: day
+      notional: bounded notional above
+      clientOrderId: "bb-ra-{symbol-lower}-{Date.now()}"
+    sell:
+      type: market
+      timeInForce: day
+      qty: current long paper position quantity
+      clientOrderId: "bb-ra-{symbol-lower}-{Date.now()}"
+  persistence:
+    - Submitted orders create Trade rows with strategy=research_auto.
+    - tradeOutcomeJson stores source=research_auto_trade, opportunity ids, source URLs, confidence, score, and order request.
+    - Submitted orders create LearningEvent(source=research_auto_trade, reward=0) so future scans/plans can see that a research-driven paper action happened.
+    - Reconciliation later updates fills and creates outcome learning when sells close buys.
+  dry_run:
+    - `npm run research:auto-trade -- --dry-run` evaluates candidates and order requests without broker submission or persistence.
+  invariant:
+    Research auto-trading is separate from runBotScan and does not modify RSI, OpenAI review, or the RSI risk gate. It is paper-only and auditable by Trade.strategy.
 
 risk_gate_contract:
   source: lib/bot/risk.ts
@@ -455,6 +542,7 @@ risk_gate_contract:
   inputs: signal, aiDecision, context, config, dryRun
   hard_blocks:
     - config.tradingMode != paper OR config.liveTradingEnabled true => reason live trading disabled.
+    - APCA_API_BASE_URL not recognized as paper endpoint via BotRuntimeConfig.paperTradingEndpoint.
     - symbol not in watchlist.
     - aiDecision.configured false.
     - realizedPnlToday <= negative maxDailyLossUsd.
@@ -537,7 +625,7 @@ persistence_contract:
     recordAiAudit:
       creates AiAudit with AI and risk payloads.
       also creates LearningEvent source=openai when learningUpdate.summary is non-empty.
-    recordTrade: creates Trade from OrderResult and rationale.
+    recordTrade: creates Trade from OrderResult, rationale, and optional strategy; RSI scan trades default to strategy=rsi_ai.
   noop: createNoopScanPersistence for tests.
 
 api_contract:
@@ -555,7 +643,7 @@ api_contract:
       behavior: runBotScan; response message contains Dry/Paper and accepted decision count; status 500 on error.
     GET /api/bot/status:
       source: app/api/bot/status/route.ts
-      behavior: returns enabled, runtime public summary, latestAudit.
+      behavior: returns enabled, runtime public summary including paperTradingEndpoint and researchAutoTrade, and latestAudit.
     POST /api/bot/toggle:
       source: app/api/bot/toggle/route.ts
       body: { enabled?: boolean }
@@ -592,10 +680,10 @@ ui_contract:
         - getPublicRuntimeSummary
       displays:
         - badges for PAPER/LIVE, OpenAI configured/missing, Alpaca configured/missing, Enabled/Paused
-        - model, watchlist, max order, active opportunity count
+        - model, watchlist, max order, research auto-trade status
         - controls
         - latest AI decision
-        - beginner-friendly explanations for RSI, watchlist, risk gate, open paper trades, research symbols, max position size
+        - beginner-friendly explanations for RSI, watchlist, risk gate, open paper trades, research symbols, research auto-trading, active opportunities, max position size
     decisions:
       source: app/dashboard/decisions/page.tsx
       route: /dashboard/decisions
@@ -616,7 +704,7 @@ ui_contract:
       source: app/dashboard/trades/page.tsx
       route: /dashboard/trades
       dynamic: force-dynamic
-      displays: Trade records, closed trade count, realized P/L, recent LearningEvent rows.
+      displays: Trade records including strategy, closed trade count, realized P/L, recent LearningEvent rows.
     research:
       source: app/dashboard/research/page.tsx
       route: /dashboard/research
@@ -652,11 +740,13 @@ cli_contract:
     scripts/run-scan.ts:
       behavior: runBotScan; default dryRun true; `--paper` sets dryRun false; print ScanResult JSON.
     scripts/worker.ts:
-      behavior: infinite loop; reads BotConfig enabled; if enabled reconcileTrades before and after runBotScan dryRun false; logs reconciliation and per-symbol final action/accepted; sleeps pollIntervalSeconds.
+      behavior: infinite loop; reads BotConfig enabled; if enabled reconcileTrades, runResearchAutoTrade dryRun false, runBotScan dryRun false, reconcileTrades again; logs reconciliation, research auto-trade item outcomes, and per-symbol RSI final action/accepted; sleeps pollIntervalSeconds.
     scripts/reconcile-trades.ts:
       behavior: run reconcileTrades; optional `--days=N`; print ReconcileResult JSON.
     scripts/research-crawl.ts:
       behavior: run runResearchCrawl; optional `--symbols=AAPL,MSFT`, `--limit=N`, `--lookback-hours=N`; print ResearchCrawlResult JSON.
+    scripts/research-auto-trade.ts:
+      behavior: run runResearchAutoTrade once; optional `--dry-run`; print ResearchAutoTradeResult JSON.
     scripts/generate-plan.ts:
       behavior: run buildTradePlan; optional `--max-items=N`; print TradePlanResult JSON. Advisory only; does not scan RSI or place orders.
     scripts/db-push.mjs:
@@ -680,7 +770,7 @@ railway_runtime_contract:
     worker:
       start_command: npm run bot:worker
       build_command: npm run build
-      purpose: Always-on paper scan loop and reconciliation around scans.
+      purpose: Always-on paper research auto-trade loop, RSI scan loop, and reconciliation around scans.
     research_cron:
       start_command: npm run research:crawl
       build_command: npm run build
@@ -705,13 +795,15 @@ railway_runtime_contract:
 safety_invariants:
   - Keep `.env` ignored and never expose secret values.
   - Current scaffold must remain Alpaca paper-only.
-  - `TRADING_MODE=live` or `LIVE_TRADING_ENABLED=true` must not submit orders unless the risk model is explicitly redesigned.
+  - `TRADING_MODE=live`, `LIVE_TRADING_ENABLED=true`, or a non-paper Alpaca endpoint must not submit orders unless the risk model is explicitly redesigned.
   - OpenAI cannot create a buy/sell contrary to deterministic RSI.
   - Risk gate must require exact AI alignment with deterministic buy/sell.
-  - Trade plans cannot create buy/sell orders and cannot bypass deterministic RSI, OpenAI review, or the risk gate.
-  - Deterministic hold always prevents order creation.
+  - Trade plans cannot create buy/sell orders and cannot bypass deterministic RSI, OpenAI review, or the RSI risk gate.
+  - Deterministic hold always prevents RSI-scan order creation.
   - Dry scan must never submit broker orders.
   - Paper scan can submit only when RSI, AI, and risk gates all accept.
+  - Research auto-trading can submit paper orders only when RESEARCH_AUTO_TRADE_ENABLED=true and its paper-only, source-backed, size, position, daily cap, loss, and cooldown gates pass.
+  - Research auto-trading must label orders with strategy=research_auto and must not run in live mode.
   - Emergency stop must disable bot and cancel open orders when Alpaca is reachable.
   - Suggested AI parameter adjustments are currently audit data only; they are not automatically applied.
 
@@ -725,6 +817,7 @@ training_learning_current:
     - Future scans include up to 5 active researchBriefs for same symbol in TradingContext.
     - Research crawler stores source-backed ResearchItem rows and active Opportunity rows from Alpaca News.
     - Trade plan generation ranks active opportunities with current paper positions and recent LearningEvent rows, then stores advisory TradePlanItem rows for dashboard review.
+    - Research auto-trading can create small paper Trade rows and LearningEvent(source=research_auto_trade) from source-backed opportunities when explicitly enabled.
   limitations:
     - Closed-trade reconciliation is first-pass FIFO-style matching and does not yet track partial lot remaining quantity.
     - Some learning rewards are still model-estimated until a trade closes and reconciliation creates outcome events.
@@ -733,10 +826,11 @@ training_learning_current:
     - Research scoring is deterministic keyword scoring, not a trained market model.
     - Research source coverage is currently Alpaca News only.
     - Opportunity discovery uses RESEARCH_SYMBOLS or WATCHLIST fallback; it does not crawl arbitrary websites.
-    - Trade plans are advisory and do not yet make positive research opportunities directly place paper trades.
+    - Trade plans remain advisory; research-driven order placement is isolated to the explicit research auto-trade executor.
+    - Research auto-trade learning starts as a zero-reward action note until reconciliation and sell-side closure create realized outcome events.
 
 intended_next_phase:
-  user_goal: Run an RSI bot that learns from trades and does web research to find potential market opportunities.
+  user_goal: Run a paper bot that researches market opportunities, places frequent small paper trades from positive opportunities, keeps the original RSI/AI path intact, and learns from each paper action/outcome.
   recommended_sequence:
     1: Run the Postgres schema push against Railway DATABASE_URL.
     2: Configure Railway services with web, worker, and research cron commands.
@@ -744,10 +838,10 @@ intended_next_phase:
     4: Add backtest harness for RSI params and paper-vs-hypothetical outcome comparison.
     5: Add lot-level remaining quantity tracking for partial exits.
     6: Add more allowed research feeds with source URLs, timestamps, symbols, thesis, catalysts, risk flags, confidence, and expiry.
-    7: Add opportunity watchlist expansion as advisory only; deterministic strategy and risk gates still decide entries.
-    8: If research-driven positive opportunities should trigger paper entries, redesign the safety model first so execution remains paper-only, risk-limited, auditable, and cannot be forced by unsourced research.
+    7: Add dashboard frequency/risk controls that map to research auto-trade cadence, notional, per-run count, position cap, daily cap, and cooldown.
+    8: Add opportunity watchlist expansion for RSI scanning separately from research auto-trading.
   research_safety:
-    - Web research can propose symbols or catalysts but must not bypass deterministic RSI or risk gates.
+    - Web research can propose symbols or catalysts and can drive paper-only research auto-trades only through the explicit bounded executor.
     - Research data must be timestamped because market/news data decays quickly.
     - Cite/store source URLs for any research-derived opportunity.
     - Avoid trading on unsourced claims.
@@ -760,6 +854,8 @@ test_contract:
       covers: AI parse/schema behavior and fallback paths.
     tests/plan-builder.test.ts:
       covers: advisory trade plan ranking, RSI eligibility, tradability explanations, and sell-candidate generation for negative research on an existing position.
+    tests/research-auto-trade.test.ts:
+      covers: paper-only research order selection outside WATCHLIST, live-mode block, and broker submission when enabled.
     tests/helpers.ts:
       covers: test env defaults.
   required_verification:
@@ -774,8 +870,8 @@ known_runtime_state_2026_07_06:
     npm_run_db_generate: ok
     npm_run_db_push: db already in sync
     npm_run_bot_scan: ok dryRun true; no orders; held/blocked due insufficient 5Min bars before market open
-    npm_run_test: 2 files passed, 5 tests passed
+    npm_run_test: 4 files passed, 10 tests passed
     npm_run_lint: ok
-    npm_run_build: ok with Postgres-shaped DATABASE_URL override
+    npm_run_build: ok
     localhost_dashboard: http://localhost:3000/dashboard returned 200
   caveat: This section is a point-in-time note and may become stale.

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BotRuntimeConfig, TradingMode } from "@/lib/types/trading";
+import type { BotRuntimeConfig, ResearchAutoTradeConfig, TradingMode } from "@/lib/types/trading";
 
 const numberFromEnv = (defaultValue: number) =>
   z
@@ -45,12 +45,20 @@ const envSchema = z.object({
   MAX_POSITION_NOTIONAL_PER_SYMBOL: numberFromEnv(25),
   MAX_DAILY_LOSS_USD: numberFromEnv(5),
   MAX_OPEN_POSITIONS: numberFromEnv(3),
-  BOT_POLL_INTERVAL_SECONDS: numberFromEnv(300),
+  BOT_POLL_INTERVAL_SECONDS: numberFromEnv(60),
   RESEARCH_SYMBOLS: z.string().optional().default(""),
   RESEARCH_LOOKBACK_HOURS: numberFromEnv(24),
   RESEARCH_NEWS_LIMIT: numberFromEnv(50),
   RESEARCH_OPPORTUNITY_TTL_HOURS: numberFromEnv(72),
-  RESEARCH_MIN_CONFIDENCE: numberFromEnv(0.35)
+  RESEARCH_MIN_CONFIDENCE: numberFromEnv(0.35),
+  RESEARCH_AUTO_TRADE_ENABLED: booleanFromEnv(false),
+  RESEARCH_AUTO_TRADE_MIN_CONFIDENCE: numberFromEnv(0.55),
+  RESEARCH_AUTO_TRADE_MIN_SCORE: numberFromEnv(0.45),
+  RESEARCH_AUTO_TRADE_NOTIONAL: numberFromEnv(1),
+  RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN: numberFromEnv(1),
+  RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS: numberFromEnv(25),
+  RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS: numberFromEnv(100),
+  RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES: numberFromEnv(60)
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -80,6 +88,7 @@ export function getBotRuntimeConfig(env = getEnv()): BotRuntimeConfig {
     overboughtThreshold: env.RSI_OVERBOUGHT,
     tradingMode: env.TRADING_MODE as TradingMode,
     liveTradingEnabled: env.LIVE_TRADING_ENABLED,
+    paperTradingEndpoint: env.APCA_API_BASE_URL.includes("paper"),
     pollIntervalSeconds: Math.max(30, env.BOT_POLL_INTERVAL_SECONDS),
     risk: {
       maxNotionalPerOrder: Math.max(1, env.MAX_NOTIONAL_PER_ORDER),
@@ -95,6 +104,7 @@ export function getPublicRuntimeSummary() {
   const env = getEnv();
   const config = getBotRuntimeConfig(env);
   const researchSymbols = getResearchSymbols(env, config.watchlist);
+  const researchAutoTrade = getResearchAutoTradeRuntimeConfig(env);
 
   return {
     openAiConfigured: isOpenAiConfigured(env),
@@ -104,6 +114,7 @@ export function getPublicRuntimeSummary() {
     openAiStoreResponses: env.OPENAI_STORE_RESPONSES,
     tradingMode: config.tradingMode,
     liveTradingEnabled: config.liveTradingEnabled,
+    paperTradingEndpoint: config.paperTradingEndpoint,
     watchlist: config.watchlist,
     rsi: {
       period: config.rsiPeriod,
@@ -118,7 +129,8 @@ export function getPublicRuntimeSummary() {
       newsLimit: Math.min(50, Math.max(1, Math.floor(env.RESEARCH_NEWS_LIMIT))),
       opportunityTtlHours: Math.max(1, env.RESEARCH_OPPORTUNITY_TTL_HOURS),
       minConfidence: Math.min(1, Math.max(0, env.RESEARCH_MIN_CONFIDENCE))
-    }
+    },
+    researchAutoTrade
   };
 }
 
@@ -132,10 +144,27 @@ export function getResearchRuntimeConfig(env = getEnv(), fallbackSymbols?: strin
   };
 }
 
+export function getResearchAutoTradeRuntimeConfig(env = getEnv()): ResearchAutoTradeConfig {
+  return {
+    enabled: env.RESEARCH_AUTO_TRADE_ENABLED,
+    minConfidence: clamp(env.RESEARCH_AUTO_TRADE_MIN_CONFIDENCE, 0, 1),
+    minScore: clamp(env.RESEARCH_AUTO_TRADE_MIN_SCORE, 0, 1),
+    notionalPerOrder: Math.max(1, env.RESEARCH_AUTO_TRADE_NOTIONAL),
+    maxItemsPerRun: Math.max(1, Math.floor(env.RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN)),
+    maxOpenPositions: Math.max(1, Math.floor(env.RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS)),
+    maxDailyOrders: Math.max(1, Math.floor(env.RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS)),
+    symbolCooldownMinutes: Math.max(0, Math.floor(env.RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES))
+  };
+}
+
 function getResearchSymbols(env: AppEnv, fallbackSymbols?: string[]): string[] {
   const symbols = env.RESEARCH_SYMBOLS.split(",")
     .map((symbol) => symbol.trim().toUpperCase())
     .filter(Boolean);
 
   return symbols.length > 0 ? symbols : fallbackSymbols ?? getBotRuntimeConfig(env).watchlist;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
