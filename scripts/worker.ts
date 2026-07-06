@@ -4,6 +4,7 @@ import { runBotScan } from "@/lib/bot/scan";
 import { getBotRuntimeConfig, getResearchAutoTradeRuntimeConfig } from "@/lib/config/env";
 import { getBotEnabled } from "@/lib/db/botConfig";
 import { recordPortfolioSnapshot } from "@/lib/portfolio/snapshots";
+import { getTradeSizedRuntimeConfig } from "@/lib/trading/tradeSizing";
 
 const config = getBotRuntimeConfig();
 const researchAutoTradeConfig = getResearchAutoTradeRuntimeConfig();
@@ -18,6 +19,7 @@ while (true) {
 
   if (enabled) {
     try {
+      const sizedRuntime = await getTradeSizedRuntimeConfig();
       const beforeScan = await reconcileTrades();
       const portfolioSnapshot = await recordPortfolioSnapshot({ minIntervalSeconds: 45 })
         .then((snapshot) => ({
@@ -32,10 +34,11 @@ while (true) {
         }));
       const researchAutoTrade = await runResearchAutoTrade({
         dryRun: false,
-        config,
-        researchConfig: researchAutoTradeConfig
+        config: sizedRuntime.config,
+        researchConfig: sizedRuntime.researchConfig,
+        tradeSizing: sizedRuntime.tradeSizing
       });
-      const result = await runBotScan({ dryRun: false, config });
+      const result = await runBotScan({ dryRun: false, config: sizedRuntime.config });
       const afterScan = await reconcileTrades();
       console.log(
         JSON.stringify(
@@ -45,6 +48,7 @@ while (true) {
               beforeScan,
               afterScan
             },
+            tradeSizing: sizedRuntime.tradeSizing,
             portfolioSnapshot,
             researchAutoTrade: {
               enabled: researchAutoTrade.enabled,

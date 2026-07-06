@@ -6,13 +6,16 @@ This project is an experiment scaffold, not financial advice. Keep it in paper m
 
 ## What Is Included
 
-- Next.js dashboard with separate pages for overview, trade plans, AI decisions, paper trades, research, and beginner trading definitions.
-- Live portfolio value graph on the trades dashboard, backed by Alpaca paper account snapshots and browser polling.
+- Next.js dashboard with separate pages for overview, trade plans, paper trades, ranked stocks, and research.
+- Live portfolio value graph and owned-stock value chart on the trades dashboard, backed by Alpaca paper data and browser polling.
+- Dashboard bid range controls for research auto-trade sizing, stored in Postgres runtime settings.
 - RSI baseline strategy with OpenAI reasoning that can only block, hold, or agree with deterministic RSI signals.
 - Alpaca paper broker integration for account, positions, orders, IEX market data, fill reconciliation, and Alpaca News research.
 - Postgres/Prisma persistence for market snapshots, signals, AI audits, trades, learning notes, research items, and opportunities.
 - Portfolio snapshots for paper account value, cash, buying power, unrealized P/L, and open-position count.
 - Research crawler that stores source-backed opportunities for AI context, plans, and optional paper-only research auto-trading.
+- Focused stock controls that add selected symbols to scheduled research crawls and advisory trade plans.
+- Stock search by ticker or company name using Alpaca active US equity assets, with explicit user-submitted manual paper buys.
 - Trade plan builder that ranks opportunities against current paper positions and learning notes before anything is eligible for RSI scanning.
 - Optional research auto-trade executor that can submit small Alpaca paper orders from positive source-backed opportunities while keeping RSI/OpenAI execution unchanged.
 - Mockable services and tests for OpenAI parsing, risk gates, and scan flow.
@@ -56,7 +59,7 @@ npm run build
 
 `npm run bot:scan` runs a dry scan. Add `-- --paper` to allow a paper order if the RSI signal, OpenAI decision, and risk gates all approve it.
 
-`npm run bot:reconcile` checks Alpaca for order fills and updates paper trade outcomes. `npm run research:crawl` imports Alpaca News, stores source links, and creates active opportunities for the dashboard and AI context. `npm run research:auto-trade` runs the paper-only research executor once; add `-- --dry-run` to preview accepted candidates without orders. `npm run plan:generate` builds an advisory trade plan from active opportunities, current paper positions, and recent learning notes.
+`npm run bot:reconcile` checks Alpaca for order fills and updates paper trade outcomes. `npm run research:crawl` imports Alpaca News, stores source links, and creates active opportunities for the dashboard and AI context. Focused symbols selected on the Stocks page are included in scheduled research crawls. `npm run research:auto-trade` runs the paper-only research executor once; add `-- --dry-run` to preview accepted candidates without orders. `npm run plan:generate` builds an advisory trade plan from active opportunities, focused symbols, current paper positions, and recent learning notes.
 
 ## Railway Services
 
@@ -80,6 +83,8 @@ For high-frequency paper learning, the worker can run every 60 seconds and call 
 - `RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES=60`
 - `BOT_POLL_INTERVAL_SECONDS=60`
 
+The Trades page can override paper bid sizing at runtime with a min/max bid range. These values are stored in Postgres `BotConfig`, so the worker reads them before each enabled loop without needing a redeploy.
+
 ## Safety Model
 
 - OpenAI cannot override deterministic RSI strategy output.
@@ -91,6 +96,7 @@ For high-frequency paper learning, the worker can run every 60 seconds and call 
 - Research opportunities cannot bypass live-trading safety. They can submit paper orders only through the explicit research auto-trade executor when enabled.
 - Research auto-trading is paper-only, source-backed, size-limited, cooldown-limited, and recorded with `strategy=research_auto`.
 - Trade plan items are advisory only. They rank candidates and explain tradability, but they cannot place orders or bypass RSI, OpenAI review, or the risk gate.
+- Manual buys from the Stocks page are user-directed Alpaca paper market orders, require paper-only safety checks, and are recorded with `strategy=manual`.
 
 ## Future Work
 

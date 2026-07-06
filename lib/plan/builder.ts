@@ -1,6 +1,7 @@
 import { AlpacaBroker } from "@/lib/broker/alpaca";
 import type { BrokerAdapter } from "@/lib/broker/types";
 import { getBotRuntimeConfig, getEnv, isAlpacaConfigured } from "@/lib/config/env";
+import { getFocusedSymbols } from "@/lib/db/focusSymbols";
 import { prisma } from "@/lib/db/prisma";
 import type {
   BotRuntimeConfig,
@@ -41,6 +42,7 @@ export type BuildTradePlanOptions = {
   opportunities?: PlanOpportunityInput[];
   positions?: PositionSnapshot[];
   learningEvents?: PlanLearningInput[];
+  focusedSymbols?: string[];
   persist?: boolean;
 };
 
@@ -79,9 +81,11 @@ export async function buildTradePlan(options: BuildTradePlanOptions = {}): Promi
   const maxItems = Math.max(1, Math.floor(options.maxItems ?? 20));
   const opportunities = options.opportunities ?? (await loadActiveOpportunities(now));
   const positions = options.positions ?? (await loadCurrentPositions(options.broker));
+  const focusedSymbols = options.focusedSymbols ?? (shouldLoadRuntimeState(options) ? await getFocusedSymbols().catch(() => []) : []);
   const symbols = uniqueStrings([
     ...opportunities.map((opportunity) => opportunity.symbol),
-    ...positions.filter(hasLongPosition).map((position) => position.symbol)
+    ...positions.filter(hasLongPosition).map((position) => position.symbol),
+    ...focusedSymbols
   ]);
   const learningEvents = options.learningEvents ?? (await loadLearningEvents(symbols));
   const items = rankPlanItems(
@@ -89,6 +93,7 @@ export async function buildTradePlan(options: BuildTradePlanOptions = {}): Promi
       opportunities,
       positions,
       learningEvents,
+      focusedSymbols,
       config
     })
   ).slice(0, maxItems);
@@ -97,6 +102,7 @@ export async function buildTradePlan(options: BuildTradePlanOptions = {}): Promi
     opportunityCount: opportunities.length,
     positionCount: positions.filter(hasLongPosition).length,
     learningNoteCount: learningEvents.length,
+    focusedSymbolCount: focusedSymbols.length,
     watchlist: config.watchlist,
     advisoryOnly: true
   };
@@ -207,11 +213,13 @@ function buildPlanItems(params: {
   opportunities: PlanOpportunityInput[];
   positions: PositionSnapshot[];
   learningEvents: PlanLearningInput[];
+  focusedSymbols: string[];
   config: BotRuntimeConfig;
 }): TradePlanItemSummary[] {
   const symbols = uniqueStrings([
     ...params.opportunities.map((opportunity) => opportunity.symbol),
-    ...params.positions.filter(hasLongPosition).map((position) => position.symbol)
+    ...params.positions.filter(hasLongPosition).map((position) => position.symbol),
+    ...params.focusedSymbols
   ]);
   const openPositionsCount = params.positions.filter(hasLongPosition).length;
 
@@ -227,6 +235,7 @@ function buildPlanItems(params: {
     const sourceUrls = uniqueStrings(opportunities.flatMap((opportunity) => opportunity.sourceUrls ?? []));
     const sourceHeadlines = uniqueStrings(opportunities.flatMap((opportunity) => opportunity.sourceHeadlines ?? []));
     const suggestedAction = chooseSuggestedAction({ netResearchScore, position, hasOpportunity: opportunities.length > 0 });
+    const focused = params.focusedSymbols.includes(symbol);
     const eligibleForRsi = params.config.watchlist.includes(symbol);
     const tradability = getTradability({
       symbol,
@@ -245,6 +254,7 @@ function buildPlanItems(params: {
       symbol,
       opportunities,
       position,
+      focused,
       eligibleForRsi,
       suggestedAction,
       learningEvents: params.learningEvents.filter((event) => event.symbol === symbol)
@@ -254,8 +264,8 @@ function buildPlanItems(params: {
       rank: 0,
       symbol,
       suggestedAction,
-      thesis: buildPlanThesis({ symbol, suggestedAction, bestOpportunity, position }),
-      catalyst: buildCatalyst({ bestOpportunity, sourceHeadlines }),
+      thesis: buildPlanThesis({ symbol, suggestedAction, bestOpportunity, position, focused }),
+      catalyst: buildCatalyst({ bestOpportunity, sourceHeadlines, focused }),
       confidence,
       score: Number((confidence * 0.65 + Math.abs(netResearchScore) * 0.35).toFixed(4)),
       riskNotes,
@@ -477,12 +487,16 @@ function buildRiskNotes(params: {
   symbol: string;
   opportunities: PlanOpportunityInput[];
   position?: PositionSnapshot;
+  focused: boolean;
   eligibleForRsi: boolean;
   suggestedAction: TradePlanSuggestedAction;
   learningEvents: PlanLearningInput[];
 }): string[] {
   const notes = uniqueStrings(params.opportunities.flatMap((opportunity) => opportunity.riskFlags));
 
+  if (params.focused) {
+    notes.push("Focused research symbol: included in future scheduled research crawls and advisory plans.");
+  }
   if (params.opportunities.length === 0) {
     notes.push("No active source-backed opportunity is available for this symbol.");
   }
@@ -512,8 +526,12 @@ function buildPlanThesis(params: {
   suggestedAction: TradePlanSuggestedAction;
   bestOpportunity?: PlanOpportunityInput;
   position?: PositionSnapshot;
+  focused: boolean;
 }): string {
   if (!params.bestOpportunity) {
+    if (params.focused) {
+      return `${params.symbol} is marked as a focused research symbol. Wait for the next source-backed research crawl before treating it as a buy or sell candidate.`;
+    }
     return params.position
       ? `${params.symbol} is already held in the paper account, but there is no active research catalyst. Keep watching for RSI and new source-backed research.`
       : `${params.symbol} has no active research catalyst, so it stays on watch.`;
@@ -531,8 +549,16 @@ function buildPlanThesis(params: {
   return `${params.bestOpportunity.thesis} The plan is to watch for confirmation instead of acting from research alone.`;
 }
 
-function buildCatalyst(params: { bestOpportunity?: PlanOpportunityInput; sourceHeadlines: string[] }): string {
-  if (!params.bestOpportunity) return "No active news catalyst; position-only watch item.";
+function buildCatalyst(params: {
+  bestOpportunity?: PlanOpportunityInput;
+  sourceHeadlines: string[];
+  focused: boolean;
+}): string {
+  if (!params.bestOpportunity) {
+    return params.focused
+      ? "Focused for the next research crawl; no active source-backed catalyst yet."
+      : "No active news catalyst; position-only watch item.";
+  }
   const headline = params.sourceHeadlines[0];
   if (headline && headline !== params.bestOpportunity.catalyst) {
     return `${params.bestOpportunity.catalyst}: ${headline}`;
@@ -546,9 +572,14 @@ function parseInputSummary(value: string): PlanInputSummary {
     opportunityCount: toNumber(parsed.opportunityCount),
     positionCount: toNumber(parsed.positionCount),
     learningNoteCount: toNumber(parsed.learningNoteCount),
+    focusedSymbolCount: toNumber(parsed.focusedSymbolCount),
     watchlist: parseUnknownArray(parsed.watchlist).map(String),
     advisoryOnly: parsed.advisoryOnly === true
   };
+}
+
+function shouldLoadRuntimeState(options: BuildTradePlanOptions): boolean {
+  return options.opportunities === undefined || options.positions === undefined || options.learningEvents === undefined;
 }
 
 function parsePosition(value?: string | null): PositionSnapshot | undefined {

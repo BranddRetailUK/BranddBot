@@ -95,4 +95,21 @@ describe("trade plan builder", () => {
     expect(plan.items[0]?.tradableNow).toBe(true);
     expect(plan.items[0]?.riskNotes.join(" ")).toContain("downgrade");
   });
+
+  it("includes focused symbols as watch items when no active catalyst exists", async () => {
+    const plan = await buildTradePlan({
+      config: testConfig(),
+      opportunities: [],
+      positions: [],
+      learningEvents: [],
+      focusedSymbols: ["NVDA"],
+      persist: false
+    });
+
+    expect(plan.inputSummary.focusedSymbolCount).toBe(1);
+    expect(plan.items).toHaveLength(1);
+    expect(plan.items[0]?.symbol).toBe("NVDA");
+    expect(plan.items[0]?.suggestedAction).toBe("watch");
+    expect(plan.items[0]?.riskNotes.join(" ")).toContain("Focused research symbol");
+  });
 });

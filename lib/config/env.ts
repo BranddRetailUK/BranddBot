@@ -150,6 +150,8 @@ export function getResearchAutoTradeRuntimeConfig(env = getEnv()): ResearchAutoT
     minConfidence: clamp(env.RESEARCH_AUTO_TRADE_MIN_CONFIDENCE, 0, 1),
     minScore: clamp(env.RESEARCH_AUTO_TRADE_MIN_SCORE, 0, 1),
     notionalPerOrder: Math.max(1, env.RESEARCH_AUTO_TRADE_NOTIONAL),
+    minNotionalPerOrder: Math.max(1, env.RESEARCH_AUTO_TRADE_NOTIONAL),
+    maxNotionalPerOrder: Math.max(1, Math.max(env.RESEARCH_AUTO_TRADE_NOTIONAL, env.MAX_NOTIONAL_PER_ORDER)),
     maxItemsPerRun: Math.max(1, Math.floor(env.RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN)),
     maxOpenPositions: Math.max(1, Math.floor(env.RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS)),
     maxDailyOrders: Math.max(1, Math.floor(env.RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS)),

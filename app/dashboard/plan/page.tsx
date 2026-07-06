@@ -38,6 +38,7 @@ export default async function PlanPage() {
               <span className="badge">Opportunities read: {plan.inputSummary.opportunityCount}</span>
               <span className="badge">Current positions read: {plan.inputSummary.positionCount}</span>
               <span className="badge">Learning notes read: {plan.inputSummary.learningNoteCount}</span>
+              <span className="badge">Focused symbols: {plan.inputSummary.focusedSymbolCount}</span>
               <span className="badge success">Advisory only</span>
             </div>
           ) : null}

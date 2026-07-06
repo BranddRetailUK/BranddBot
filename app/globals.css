@@ -498,6 +498,170 @@ tr:last-child td {
   font-size: 13px;
 }
 
+.tradeSizingBody,
+.positionsBody {
+  display: grid;
+  gap: 14px;
+}
+
+.tradeSizingFields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+
+.fieldGroup {
+  display: grid;
+  gap: 6px;
+  min-width: 170px;
+}
+
+.fieldGroup > span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.moneyInput,
+.compactMoneyInput,
+.searchInputWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+.moneyInput input,
+.compactMoneyInput input,
+.searchInputWrap input,
+.focusForm input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.moneyInput input {
+  min-width: 120px;
+}
+
+.compactMoneyInput {
+  width: 120px;
+}
+
+.positionsPanel {
+  margin-bottom: 16px;
+}
+
+.positionBars {
+  display: grid;
+  gap: 12px;
+}
+
+.positionBarRow {
+  display: grid;
+  grid-template-columns: 150px minmax(180px, 1fr) 140px;
+  gap: 12px;
+  align-items: center;
+}
+
+.positionBarMeta,
+.positionBarValue {
+  display: grid;
+  gap: 4px;
+}
+
+.positionBarMeta span,
+.positionBarValue span,
+.assetResultRow small,
+.assetResultRow span {
+  color: var(--muted);
+}
+
+.positionBarTrack {
+  height: 16px;
+  border-radius: 999px;
+  background: #e9eef1;
+  overflow: hidden;
+}
+
+.positionBarFill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.stockHeader {
+  align-items: center;
+}
+
+.focusForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.focusForm input {
+  width: 120px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  padding: 0 10px;
+  font-weight: 700;
+}
+
+.focusAction {
+  display: grid;
+  gap: 5px;
+  min-width: 94px;
+}
+
+.compactButton {
+  min-height: 34px;
+  padding: 7px 9px;
+}
+
+.stockSearchPanel {
+  margin-bottom: 4px;
+}
+
+.searchInputWrap {
+  width: min(100%, 520px);
+}
+
+.searchInputWrap input {
+  min-height: 40px;
+}
+
+.assetResults {
+  display: grid;
+  gap: 8px;
+}
+
+.assetResultRow {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.assetResultRow > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
 .guideGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -543,5 +707,15 @@ a {
 
   .portfolioHeader {
     display: grid;
+  }
+
+  .positionBarRow,
+  .assetResultRow {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .focusForm {
+    justify-content: flex-start;
   }
 }

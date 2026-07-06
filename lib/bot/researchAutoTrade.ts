@@ -2,6 +2,11 @@ import { AlpacaBroker } from "@/lib/broker/alpaca";
 import type { BrokerAdapter } from "@/lib/broker/types";
 import { getBotRuntimeConfig, getResearchAutoTradeRuntimeConfig } from "@/lib/config/env";
 import { prisma } from "@/lib/db/prisma";
+import {
+  applyTradeSizingToBotConfig,
+  applyTradeSizingToResearchAutoTradeConfig,
+  getTradeSizingSettings
+} from "@/lib/trading/tradeSizing";
 import type {
   AccountSnapshot,
   BotRuntimeConfig,
@@ -10,7 +15,8 @@ import type {
   PositionSnapshot,
   ResearchAutoTradeConfig,
   ResearchAutoTradeItemResult,
-  ResearchAutoTradeResult
+  ResearchAutoTradeResult,
+  TradeSizingSettings
 } from "@/lib/types/trading";
 
 export type ResearchAutoTradeOpportunityInput = {
@@ -45,13 +51,20 @@ export async function runResearchAutoTrade(options?: {
   recentResearchTrades?: ResearchAutoTradeRecentTradeInput[];
   dailyResearchTradeCount?: number;
   realizedPnlToday?: number;
+  tradeSizing?: TradeSizingSettings;
   persist?: boolean;
 }): Promise<ResearchAutoTradeResult> {
   const startedAt = options?.now ?? new Date();
   const now = options?.now ?? startedAt;
   const dryRun = options?.dryRun ?? false;
-  const config = options?.config ?? getBotRuntimeConfig();
-  const researchConfig = options?.researchConfig ?? getResearchAutoTradeRuntimeConfig();
+  const providedRuntimeConfig = Boolean(options?.config && options?.researchConfig);
+  const tradeSizing = options?.tradeSizing ?? (providedRuntimeConfig ? undefined : await getTradeSizingSettings());
+  const baseConfig = options?.config ?? getBotRuntimeConfig();
+  const baseResearchConfig = options?.researchConfig ?? getResearchAutoTradeRuntimeConfig();
+  const config = tradeSizing ? applyTradeSizingToBotConfig(baseConfig, tradeSizing) : baseConfig;
+  const researchConfig = tradeSizing
+    ? applyTradeSizingToResearchAutoTradeConfig(baseResearchConfig, tradeSizing)
+    : baseResearchConfig;
 
   if (!researchConfig.enabled) {
     return buildResult({
@@ -282,8 +295,9 @@ function evaluateCandidate(params: {
   if (candidate.action === "buy") {
     const currentExposure = candidate.position?.marketValue ?? 0;
     const remainingForSymbol = config.risk.maxPositionNotionalPerSymbol - currentExposure;
+    const targetNotional = calculateBidNotional(candidate.opportunity, researchConfig);
     const notional = roundNotional(
-      Math.min(researchConfig.notionalPerOrder, config.risk.maxNotionalPerOrder, remainingForSymbol, params.account.buyingPower)
+      Math.min(targetNotional, config.risk.maxNotionalPerOrder, remainingForSymbol, params.account.buyingPower)
     );
 
     if (!candidate.position && params.openPositionsCount >= researchConfig.maxOpenPositions) {
@@ -294,8 +308,10 @@ function evaluateCandidate(params: {
         `${candidate.symbol} already had a research auto-trade buy within the ${researchConfig.symbolCooldownMinutes} minute cooldown.`
       );
     }
-    if (notional < 1) {
-      reasons.push("No notional capacity remains for this symbol or account.");
+    if (notional < researchConfig.minNotionalPerOrder) {
+      reasons.push(
+        `No notional capacity remains for the minimum $${researchConfig.minNotionalPerOrder.toFixed(2)} bid on this symbol or account.`
+      );
     }
 
     if (reasons.length === 0) {
@@ -547,6 +563,18 @@ function uniqueStrings(values: string[]): string[] {
 
 function roundNotional(value: number): number {
   return Math.floor(value * 100) / 100;
+}
+
+function calculateBidNotional(
+  opportunity: ResearchAutoTradeOpportunityInput,
+  researchConfig: ResearchAutoTradeConfig
+): number {
+  const minBid = researchConfig.minNotionalPerOrder;
+  const maxBid = Math.max(minBid, researchConfig.maxNotionalPerOrder);
+  if (minBid === maxBid) return minBid;
+
+  const strength = Math.min(1, Math.max(0, (Math.abs(opportunity.score) + opportunity.confidence) / 2));
+  return minBid + (maxBid - minBid) * strength;
 }
 
 function createClientOrderId(symbol: string): string {

@@ -9,6 +9,8 @@ const enabledResearchConfig: ResearchAutoTradeConfig = {
   minConfidence: 0.55,
   minScore: 0.45,
   notionalPerOrder: 1,
+  minNotionalPerOrder: 1,
+  maxNotionalPerOrder: 1,
   maxItemsPerRun: 1,
   maxOpenPositions: 25,
   maxDailyOrders: 100,
@@ -83,6 +85,40 @@ describe("research auto-trade executor", () => {
     expect(result.items[0]?.order?.id).toBe("mock-order-1");
     expect(broker.orders).toHaveLength(1);
     expect(broker.orders[0]?.notional).toBe(1);
+  });
+
+  it("sizes buy notional inside the configured min/max bid range", async () => {
+    const broker = new MockBroker();
+    const result = await runResearchAutoTrade({
+      dryRun: true,
+      broker,
+      config: {
+        ...testConfig(),
+        risk: {
+          ...testConfig().risk,
+          maxNotionalPerOrder: 100,
+          maxPositionNotionalPerSymbol: 100
+        }
+      },
+      researchConfig: {
+        ...enabledResearchConfig,
+        notionalPerOrder: 100,
+        minNotionalPerOrder: 25,
+        maxNotionalPerOrder: 100
+      },
+      now: new Date(Date.UTC(2026, 0, 1, 15)),
+      account: broker.account,
+      positions: [],
+      opportunities: [bullishOpportunity("AAPL")],
+      recentResearchTrades: [],
+      dailyResearchTradeCount: 0,
+      realizedPnlToday: 0,
+      persist: false
+    });
+
+    const notional = result.items[0]?.orderRequest?.notional ?? 0;
+    expect(notional).toBeGreaterThan(25);
+    expect(notional).toBeLessThanOrEqual(100);
   });
 });
 

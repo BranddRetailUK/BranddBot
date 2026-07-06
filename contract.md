@@ -4,7 +4,7 @@ repo:
   name: ai-rsi-trading-bot
   product_name: BranddBot
   description: AI-gated RSI paper-trading bot for US stocks/ETFs with outcome learning and source-backed research.
-  status: paper_trading_research_auto_trade_scaffold
+  status: paper_trading_research_auto_trade_dashboard_controls
   language: TypeScript
   module_system: ESM
   framework: Next.js App Router
@@ -220,7 +220,7 @@ data_model:
       key: String id
       value: String
       updatedAt: DateTime updatedAt
-      use: Stores runtime flags, currently bot enabled state.
+      use: Stores runtime settings including bot.enabled, trade.sizing, and research.focusSymbols.
     MarketSnapshot:
       fields: [id, symbol, timeframe, price, rsi, barsJson, createdAt]
       indexes: [[symbol, createdAt]]
@@ -270,12 +270,16 @@ type_contract:
     TradingMode: ["paper", "live"]
     TradeAction: ["buy", "sell", "hold", "block"]
     OrderSide: ["buy", "sell"]
-    TradeStrategy: ["rsi_ai", "research_auto"]
+    TradeStrategy: ["rsi_ai", "research_auto", "manual"]
     MarketBar: { timestamp, open, high, low, close, volume }
     AccountSnapshot: { id?, status?, currency?, buyingPower, cash, portfolioValue }
     PositionSnapshot: { symbol, qty, marketValue, avgEntryPrice, unrealizedPnl }
     PortfolioSnapshotPoint: { id?, portfolioValue, cash, buyingPower, longMarketValue, unrealizedPnl, openPositionsCount, createdAt }
     PortfolioHistoryResult: { generatedAt, rangeHours, points, latest?, baselineValue?, change?, changePercent?, error? }
+    PortfolioPositionValue: { symbol, qty, marketValue, avgEntryPrice, unrealizedPnl, allocationPercent }
+    PortfolioPositionsResult: { generatedAt, positions, totalMarketValue, error? }
+    StockAsset: { symbol, name, exchange?, assetClass?, status?, tradable, fractionable }
+    TradeSizingSettings: { minBidNotional, maxBidNotional, updatedAt? }
     OrderRequest: { symbol, side, notional?, qty?, type?, timeInForce?, clientOrderId? }
     OrderResult: { id, symbol, side, status, notional?, qty?, filledAvgPrice? }
     BrokerOrderSnapshot: OrderResult plus { filledAt?, submittedAt? }
@@ -283,7 +287,7 @@ type_contract:
     RsiSignal: { symbol, action: buy_or_sell_or_hold, rsi?, previousRsi?, confidence, reason, recommendedNotional? }
     RiskLimits: { maxNotionalPerOrder, maxPositionNotionalPerSymbol, maxDailyLossUsd, maxOpenPositions, minAiConfidence }
     BotRuntimeConfig: { watchlist, rsiPeriod, timeframe, oversoldThreshold, overboughtThreshold, tradingMode, liveTradingEnabled, paperTradingEndpoint, pollIntervalSeconds, risk }
-    ResearchAutoTradeConfig: { enabled, minConfidence, minScore, notionalPerOrder, maxItemsPerRun, maxOpenPositions, maxDailyOrders, symbolCooldownMinutes }
+    ResearchAutoTradeConfig: { enabled, minConfidence, minScore, notionalPerOrder, minNotionalPerOrder, maxNotionalPerOrder, maxItemsPerRun, maxOpenPositions, maxDailyOrders, symbolCooldownMinutes }
     ResearchBrief: { symbol, direction, thesis, catalyst, confidence, score, riskFlags, expiresAt }
     TradingContext: { symbol, generatedAt, currentPrice, barSummary, rsi, deterministicSignal, position?, account, openPositionsCount, recentTrades, realizedPnlToday, riskLimits, priorLessons, researchBriefs }
     AiTradingDecision: { decision, confidence, rationale, riskFlags, learningUpdate, recommendedParameterAdjustments }
@@ -299,7 +303,7 @@ type_contract:
     ResearchAutoTradeResult: { startedAt, finishedAt, enabled, dryRun, tradingMode, submittedOrders, candidatesEvaluated, config, items }
     TradePlanSuggestedAction: ["watch", "buy_candidate", "sell_candidate", "avoid"]
     TradePlanItemSummary: { rank, symbol, suggestedAction, thesis, catalyst, confidence, score, riskNotes, eligibleForRsi, tradableNow, tradabilityReason, opportunityIds, sourceUrls, learningNotes, position? }
-    TradePlanResult: { id, status, generatedAt, createdAt, inputSummary, items }
+    TradePlanResult: { id, status, generatedAt, createdAt, inputSummary including focusedSymbolCount, items }
 
 strategy_contract:
   source: lib/strategy/rsi.ts
@@ -419,6 +423,19 @@ broker_contract:
     getOrder: returns matching mock order as filled.
     getFillActivities: maps mock orders into synthetic fills.
 
+asset_search_contract:
+  source: lib/market/assets.ts
+  provider: Alpaca Trading API
+  endpoint: APCA_API_BASE_URL + "/v2/assets?status=active&asset_class=us_equity"
+  behavior:
+    - Requires Alpaca paper credentials.
+    - Caches active US equity assets in-process for 10 minutes.
+    - Searches by ticker symbol or company name.
+    - Returns StockAsset rows with tradable and fractionable flags.
+  consumers:
+    - GET /api/stocks/search
+    - manual_order_contract asset validation
+
 reconciliation_contract:
   source: lib/bot/reconcile.ts
   function: reconcileTrades
@@ -460,6 +477,17 @@ portfolio_snapshot_contract:
     - GET /api/portfolio/history for dashboard polling.
     - scripts/worker.ts records a snapshot once per enabled loop with minIntervalSeconds=45.
 
+portfolio_positions_contract:
+  source: lib/portfolio/positions.ts
+  function: getPortfolioPositions
+  behavior:
+    - Reads AlpacaBroker.getPositions.
+    - Filters open long paper positions.
+    - Calculates total long market value and per-position allocationPercent.
+    - Returns positions sorted by marketValue descending.
+  consumers:
+    - GET /api/portfolio/positions for the Trades dashboard holdings chart.
+
 research_contract:
   sources: [lib/research/alpacaNews.ts, lib/research/scoring.ts, lib/research/crawl.ts]
   news_provider: Alpaca Market Data News API
@@ -467,7 +495,7 @@ research_contract:
   crawl_function: runResearchCrawl
   script: npm run research:crawl
   query:
-    symbols: RESEARCH_SYMBOLS or WATCHLIST fallback
+    symbols: RESEARCH_SYMBOLS or WATCHLIST fallback, plus BotConfig research.focusSymbols when run without explicit --symbols
     start: now minus RESEARCH_LOOKBACK_HOURS
     limit: RESEARCH_NEWS_LIMIT clamped 1..50
     include_content: false
@@ -477,6 +505,7 @@ research_contract:
     - Store source URL, headline, source, published timestamp, symbols JSON, content hash, sentiment, catalyst, risk flags, confidence, expiry.
     - Expire old Opportunity rows before each crawl.
     - Create/update active Opportunity rows by symbol and direction when confidence >= RESEARCH_MIN_CONFIDENCE.
+    - Focused symbols are stored in BotConfig key research.focusSymbols and can be updated from the Stocks dashboard.
   scoring:
     type: deterministic keyword classifier.
     directions: bullish, bearish, watch.
@@ -491,13 +520,15 @@ trade_plan_contract:
   script: npm run plan:generate
   inputs:
     - Active Opportunity rows where status=active and expiresAt > now.
+    - Focused symbols from BotConfig research.focusSymbols.
     - Current paper positions from AlpacaBroker.getPositions when Alpaca credentials are configured; falls back to no positions if unavailable.
     - Recent LearningEvent rows for candidate symbols.
     - BotRuntimeConfig watchlist and risk limits.
   ranking:
-    - Candidate symbols come from active opportunities plus current long positions.
+    - Candidate symbols come from active opportunities, focused symbols, and current long positions.
     - Net research score sums opportunity scores per symbol and clamps to [-1, 1].
     - Suggested action is buy_candidate for positive research without an existing position, sell_candidate for negative research with an existing long position, avoid for negative research without a long position, and watch otherwise.
+    - Focused symbols without an active source-backed catalyst are included as watch items.
     - Confidence blends strongest opportunity confidence, absolute net research score, source count, and recent learning rewards.
     - Items are sorted by plan score, action priority, then symbol.
   fields:
@@ -508,6 +539,7 @@ trade_plan_contract:
       - confidence and score
       - suggested action: watch/buy_candidate/sell_candidate/avoid
       - risk notes from opportunity risk flags, watchlist eligibility, current position, and learning signals
+      - focused symbol note when the item came from research.focusSymbols
       - eligibleForRsi: symbol is in WATCHLIST
       - tradableNow/tradabilityReason: high-level paper eligibility explanation only; false when live mode, live enable flag, or non-paper Alpaca endpoint safety is not satisfied
   persistence:
@@ -529,6 +561,7 @@ research_auto_trade_contract:
     - Recent Trade rows with strategy=research_auto for cooldown checks.
     - Current-day research_auto trade count for daily cap checks.
     - Current-day realized P/L for daily loss guard.
+    - Trade sizing settings from BotConfig trade.sizing unless explicit config is injected.
   candidate_rules:
     - Bullish opportunities with confidence >= RESEARCH_AUTO_TRADE_MIN_CONFIDENCE and score >= RESEARCH_AUTO_TRADE_MIN_SCORE become buy candidates, even when the symbol is outside WATCHLIST.
     - Bearish opportunities meeting the same absolute thresholds can create sell candidates only for existing long paper positions.
@@ -541,7 +574,9 @@ research_auto_trade_contract:
     - Each worker/script run submits at most RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN accepted orders.
     - New buy positions are capped by RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS.
     - Per-symbol exposure is capped by MAX_POSITION_NOTIONAL_PER_SYMBOL.
-    - Per-order notional is min(RESEARCH_AUTO_TRADE_NOTIONAL, MAX_NOTIONAL_PER_ORDER, remaining symbol capacity, buying power).
+    - Buy target notional is scaled between trade.sizing minBidNotional and maxBidNotional by opportunity strength.
+    - Final buy notional is min(scaled target, MAX_NOTIONAL_PER_ORDER after runtime sizing, remaining symbol capacity, buying power).
+    - Buys are blocked when final notional is below trade.sizing minBidNotional.
     - Same-symbol same-side research_auto trades respect RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES.
   orders:
     buy:
@@ -563,6 +598,19 @@ research_auto_trade_contract:
     - `npm run research:auto-trade -- --dry-run` evaluates candidates and order requests without broker submission or persistence.
   invariant:
     Research auto-trading is separate from runBotScan and does not modify RSI, OpenAI review, or the RSI risk gate. It is paper-only and auditable by Trade.strategy.
+
+manual_order_contract:
+  source: lib/trading/manualOrder.ts
+  api: POST /api/orders/manual-buy
+  behavior:
+    - User submits symbol and notional from the Stocks dashboard search UI.
+    - Looks up active US equity assets through Alpaca /v2/assets and requires a tradable fractionable asset.
+    - Requires TRADING_MODE=paper, LIVE_TRADING_ENABLED=false, and APCA_API_BASE_URL to be a paper endpoint.
+    - Requires notional between $1 and $100,000 and notional <= current paper buying power.
+    - Submits an Alpaca paper market buy with timeInForce=day.
+    - Creates Trade(strategy=manual) and LearningEvent(source=manual_order) when persisted.
+  invariant:
+    Manual orders are explicit user-directed paper orders. They are not bot-generated recommendations and do not change RSI, OpenAI review, research auto-trading, or risk gate behavior.
 
 risk_gate_contract:
   source: lib/bot/risk.ts
@@ -668,6 +716,31 @@ api_contract:
       source: app/api/portfolio/history/route.ts
       query: { rangeHours?: number }
       behavior: refreshes a throttled Alpaca paper portfolio snapshot, then returns PortfolioHistoryResult for the requested range; status 500 on unrecoverable error.
+    GET /api/portfolio/positions:
+      source: app/api/portfolio/positions/route.ts
+      behavior: returns current open long paper positions, total long market value, allocation percentages, and generatedAt; status 500 with empty positions on error.
+    GET /api/settings/trade-sizing:
+      source: app/api/settings/trade-sizing/route.ts
+      behavior: returns BotConfig-backed TradeSizingSettings with env-derived defaults when unset.
+    POST /api/settings/trade-sizing:
+      source: app/api/settings/trade-sizing/route.ts
+      body: { minBidNotional, maxBidNotional }
+      behavior: validates $1 <= min <= max <= $100,000, stores BotConfig trade.sizing, and returns settings.
+    GET /api/focus-symbols:
+      source: app/api/focus-symbols/route.ts
+      behavior: returns focused symbols from BotConfig research.focusSymbols.
+    POST /api/focus-symbols:
+      source: app/api/focus-symbols/route.ts
+      body: { symbol, focused } or { symbols }
+      behavior: validates/normalizes symbols, updates BotConfig research.focusSymbols, and returns the full focused symbol list.
+    GET /api/stocks/search:
+      source: app/api/stocks/search/route.ts
+      query: { q, limit? }
+      behavior: searches Alpaca active US equity assets by ticker or company name and returns StockAsset rows.
+    POST /api/orders/manual-buy:
+      source: app/api/orders/manual-buy/route.ts
+      body: { symbol, notional }
+      behavior: submits an explicit user-directed Alpaca paper market buy through manual_order_contract and records Trade(strategy=manual); status 400 on validation/safety failure.
     POST /api/bot/scan:
       source: app/api/bot/scan/route.ts
       body: { dryRun?: boolean }
@@ -699,7 +772,7 @@ ui_contract:
     layout:
       source: app/dashboard/layout.tsx
       nav_source: app/dashboard/DashboardNav.tsx
-      top_nav_routes: [/dashboard, /dashboard/plan, /dashboard/decisions, /dashboard/trades, /dashboard/research, /dashboard/guide]
+      top_nav_routes: [/dashboard, /dashboard/plan, /dashboard/trades, /dashboard/stocks, /dashboard/research]
     overview:
       source: app/dashboard/page.tsx
       route: /dashboard
@@ -709,18 +782,15 @@ ui_contract:
         - latest AiAudit
         - active Opportunity count
         - open Trade count
+        - getTradeSizingSettings
+        - getFocusedSymbols
         - getPublicRuntimeSummary
       displays:
         - badges for PAPER/LIVE, OpenAI configured/missing, Alpaca configured/missing, Enabled/Paused
-        - model, watchlist, max order, research auto-trade status
+        - model, watchlist, bid range, research auto-trade status
         - controls
         - latest AI decision
         - beginner-friendly explanations for RSI, watchlist, risk gate, open paper trades, research symbols, research auto-trading, active opportunities, max position size
-    decisions:
-      source: app/dashboard/decisions/page.tsx
-      route: /dashboard/decisions
-      dynamic: force-dynamic
-      displays: Recent AiAudit rows with decision, confidence, accepted status, rationale, rejection reasons.
     plan:
       source: app/dashboard/plan/page.tsx
       route: /dashboard/plan
@@ -731,28 +801,44 @@ ui_contract:
       displays:
         - Latest TradePlan generated timestamp and advisory-only badges.
         - Plan item metrics for total items, RSI eligible items, and tradable candidates.
+        - Input badges including opportunity count, current positions, learning notes, focused symbols, and advisory-only mode.
         - Ranked table with candidate symbol, suggested action, confidence, thesis, catalyst/news reason, source links, risk notes, RSI eligibility, tradableNow, and tradability reason.
     trades:
       source: app/dashboard/trades/page.tsx
       route: /dashboard/trades
       dynamic: force-dynamic
       chart_source: app/dashboard/trades/PortfolioValueChart.tsx
-      displays: Trade records including strategy, closed trade count, realized P/L, recent LearningEvent rows, and a live portfolio value/P&L graph below the KPI cards.
+      sizing_controls_source: app/dashboard/trades/TradeSizingControls.tsx
+      holdings_chart_source: app/dashboard/trades/OwnedPositionsChart.tsx
+      displays: Trade records including strategy, closed trade count, realized P/L, recent LearningEvent rows, bid range controls, a live portfolio value/P&L graph, and a current holdings value chart below the KPI cards.
+      sizing_behavior:
+        - GET/POST /api/settings/trade-sizing controls paper research auto-trade min/max bid size.
+        - Worker reads settings before each enabled loop.
       chart_behavior:
         - Server page seeds the chart with getPortfolioHistory(refresh=false, rangeHours=24).
         - Client chart polls GET /api/portfolio/history every 15 seconds without requiring page reload.
         - Range buttons show 6H, 24H, and 3D windows.
         - Chart displays current portfolio value, P/L in range, unrealized P/L, cash, latest timestamp, and Alpaca refresh errors when present.
+      holdings_behavior:
+        - Server page seeds the holdings chart with getPortfolioPositions.
+        - Client chart polls GET /api/portfolio/positions every 15 seconds.
+        - Displays current owned symbols, quantities, market values, unrealized P/L, and allocation bars.
+    stocks:
+      source: app/dashboard/stocks/page.tsx
+      route: /dashboard/stocks
+      dynamic: force-dynamic
+      controls_sources: [app/dashboard/stocks/FocusStockControls.tsx, app/dashboard/stocks/StockSearchBuy.tsx]
+      displays:
+        - Ranked stocks sorted by optimism score from active opportunities, recent research, focused symbols, and current holdings.
+        - Focus/unfocus controls backed by /api/focus-symbols.
+        - Stock search by ticker or company name backed by /api/stocks/search.
+        - Manual paper buy controls backed by /api/orders/manual-buy.
+        - Catalyst, thesis, risk notes, source links, confidence, suggested action, and current holding value.
     research:
       source: app/dashboard/research/page.tsx
       route: /dashboard/research
       dynamic: force-dynamic
       displays: Active Opportunity rows and recent ResearchItem source rows.
-    guide:
-      source: app/dashboard/guide/page.tsx
-      route: /dashboard/guide
-      dynamic: static
-      displays: Beginner-friendly definitions for paper trading, symbol, ETF, RSI, oversold, overbought, notional, position, realized P/L, risk gate, catalyst, confidence.
   controls:
     source: app/dashboard/BotControls.tsx
     buttons:
@@ -778,11 +864,11 @@ cli_contract:
     scripts/run-scan.ts:
       behavior: runBotScan; default dryRun true; `--paper` sets dryRun false; print ScanResult JSON.
     scripts/worker.ts:
-      behavior: infinite loop; reads BotConfig enabled; if enabled reconcileTrades, recordPortfolioSnapshot, runResearchAutoTrade dryRun false, runBotScan dryRun false, reconcileTrades again; logs portfolio snapshot, reconciliation, research auto-trade item outcomes, and per-symbol RSI final action/accepted; sleeps pollIntervalSeconds.
+      behavior: infinite loop; reads BotConfig enabled and trade.sizing; if enabled reconcileTrades, recordPortfolioSnapshot, runResearchAutoTrade dryRun false with runtime sizing, runBotScan dryRun false with runtime sizing, reconcileTrades again; logs trade sizing, portfolio snapshot, reconciliation, research auto-trade item outcomes, and per-symbol RSI final action/accepted; sleeps pollIntervalSeconds.
     scripts/reconcile-trades.ts:
       behavior: run reconcileTrades; optional `--days=N`; print ReconcileResult JSON.
     scripts/research-crawl.ts:
-      behavior: run runResearchCrawl; optional `--symbols=AAPL,MSFT`, `--limit=N`, `--lookback-hours=N`; print ResearchCrawlResult JSON.
+      behavior: run runResearchCrawl; optional `--symbols=AAPL,MSFT`, `--limit=N`, `--lookback-hours=N`; when --symbols is omitted it includes focused symbols from BotConfig; print ResearchCrawlResult JSON.
     scripts/research-auto-trade.ts:
       behavior: run runResearchAutoTrade once; optional `--dry-run`; print ResearchAutoTradeResult JSON.
     scripts/generate-plan.ts:
@@ -842,6 +928,8 @@ safety_invariants:
   - Paper scan can submit only when RSI, AI, and risk gates all accept.
   - Research auto-trading can submit paper orders only when RESEARCH_AUTO_TRADE_ENABLED=true and its paper-only, source-backed, size, position, daily cap, loss, and cooldown gates pass.
   - Research auto-trading must label orders with strategy=research_auto and must not run in live mode.
+  - Runtime trade.sizing can increase paper order size but cannot bypass paper-only mode, buying power, daily cap, cooldown, or symbol/position caps.
+  - Manual buys from the Stocks page must be explicit user actions, must remain Alpaca paper-only, and must label orders with strategy=manual.
   - Emergency stop must disable bot and cancel open orders when Alpaca is reachable.
   - Suggested AI parameter adjustments are currently audit data only; they are not automatically applied.
 
@@ -856,6 +944,8 @@ training_learning_current:
     - Research crawler stores source-backed ResearchItem rows and active Opportunity rows from Alpaca News.
     - Trade plan generation ranks active opportunities with current paper positions and recent LearningEvent rows, then stores advisory TradePlanItem rows for dashboard review.
     - Research auto-trading can create small paper Trade rows and LearningEvent(source=research_auto_trade) from source-backed opportunities when explicitly enabled.
+    - Focused symbols add user-selected stocks to scheduled research and advisory plan watch items.
+    - Manual user paper buys create Trade(strategy=manual) rows and LearningEvent(source=manual_order), then reconciliation can update fills/outcomes.
   limitations:
     - Closed-trade reconciliation is first-pass FIFO-style matching and does not yet track partial lot remaining quantity.
     - Some learning rewards are still model-estimated until a trade closes and reconciliation creates outcome events.
@@ -866,6 +956,7 @@ training_learning_current:
     - Opportunity discovery uses RESEARCH_SYMBOLS or WATCHLIST fallback; it does not crawl arbitrary websites.
     - Trade plans remain advisory; research-driven order placement is isolated to the explicit research auto-trade executor.
     - Research auto-trade learning starts as a zero-reward action note until reconciliation and sell-side closure create realized outcome events.
+    - Manual buy learning starts as a zero-reward action note until reconciliation and sell-side closure create realized outcome events.
 
 intended_next_phase:
   user_goal: Run a paper bot that researches market opportunities, places frequent small paper trades from positive opportunities, keeps the original RSI/AI path intact, and learns from each paper action/outcome.
@@ -876,7 +967,7 @@ intended_next_phase:
     4: Add backtest harness for RSI params and paper-vs-hypothetical outcome comparison.
     5: Add lot-level remaining quantity tracking for partial exits.
     6: Add more allowed research feeds with source URLs, timestamps, symbols, thesis, catalysts, risk flags, confidence, and expiry.
-    7: Add dashboard frequency/risk controls that map to research auto-trade cadence, notional, per-run count, position cap, daily cap, and cooldown.
+    7: Expand dashboard frequency/risk controls beyond bid sizing to map cadence, per-run count, position cap, daily cap, and cooldown.
     8: Add opportunity watchlist expansion for RSI scanning separately from research auto-trading.
   research_safety:
     - Web research can propose symbols or catalysts and can drive paper-only research auto-trades only through the explicit bounded executor.
@@ -895,7 +986,11 @@ test_contract:
     tests/research-auto-trade.test.ts:
       covers: paper-only research order selection outside WATCHLIST, live-mode block, and broker submission when enabled.
     tests/portfolio-snapshots.test.ts:
-      covers: portfolio position summary math for long market value, unrealized P/L, and open position count.
+      covers: portfolio position summary math for long market value, unrealized P/L, open position count, and owned-position value allocation.
+    tests/trade-sizing.test.ts:
+      covers: dashboard bid range normalization and runtime application to bot/research auto-trade configs.
+    tests/manual-order.test.ts:
+      covers: explicit manual paper buy submission through a mock broker and paper-only safety block.
     tests/helpers.ts:
       covers: test env defaults.
   required_verification:
@@ -910,7 +1005,7 @@ known_runtime_state_2026_07_06:
     npm_run_db_generate: ok
     npm_run_db_push: db already in sync
     npm_run_bot_scan: ok dryRun true; no orders; held/blocked due insufficient 5Min bars before market open
-    npm_run_test: 5 files passed, 11 tests passed
+    npm_run_test: 7 files passed, 18 tests passed
     npm_run_lint: ok
     npm_run_build: ok
     localhost_dashboard: http://localhost:3000/dashboard returned 200

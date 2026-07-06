@@ -2,16 +2,20 @@ import { Activity, Brain, Shield, Zap } from "lucide-react";
 import { BotControls } from "@/app/dashboard/BotControls";
 import { getPublicRuntimeSummary } from "@/lib/config/env";
 import { getBotEnabled } from "@/lib/db/botConfig";
+import { getFocusedSymbols } from "@/lib/db/focusSymbols";
 import { prisma } from "@/lib/db/prisma";
+import { getTradeSizingSettings } from "@/lib/trading/tradeSizing";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [enabled, latest, activeOpportunityCount, openTradeCount] = await Promise.all([
+  const [enabled, latest, activeOpportunityCount, openTradeCount, tradeSizing, focusedSymbols] = await Promise.all([
     getBotEnabled().catch(() => false),
     prisma.aiAudit.findFirst({ orderBy: { createdAt: "desc" } }).catch(() => null),
     prisma.opportunity.count({ where: { status: "active", expiresAt: { gt: new Date() } } }).catch(() => 0),
-    prisma.trade.count({ where: { closedAt: null, status: { in: ["accepted", "new", "partially_filled", "filled"] } } }).catch(() => 0)
+    prisma.trade.count({ where: { closedAt: null, status: { in: ["accepted", "new", "partially_filled", "filled"] } } }).catch(() => 0),
+    getTradeSizingSettings(),
+    getFocusedSymbols().catch(() => [])
   ]);
   const runtime = getPublicRuntimeSummary();
 
@@ -36,13 +40,13 @@ export default async function DashboardPage() {
       <section className="grid cards">
         <Metric icon={<Brain size={20} />} label="AI Model" value={runtime.openAiModel} />
         <Metric icon={<Activity size={20} />} label="Watchlist" value={runtime.watchlist.join(", ")} />
-        <Metric icon={<Shield size={20} />} label="Max Order" value={`$${runtime.risk.maxNotionalPerOrder}`} />
+        <Metric icon={<Shield size={20} />} label="Bid Range" value={`$${tradeSizing.minBidNotional}-$${tradeSizing.maxBidNotional}`} />
         <Metric
           icon={<Zap size={20} />}
           label="Research Auto"
           value={
             runtime.researchAutoTrade.enabled
-              ? `$${runtime.researchAutoTrade.notionalPerOrder}/order`
+              ? `$${tradeSizing.maxBidNotional}/max`
               : "Off"
           }
         />
@@ -127,7 +131,8 @@ export default async function DashboardPage() {
               {openTradeCount} trade record(s) are currently open or waiting for reconciliation.
             </Term>
             <Term title="Research symbols">
-              The research crawler is currently looking at {runtime.research.symbols.join(", ")}.
+              The research crawler is currently looking at {runtime.research.symbols.join(", ")}
+              {focusedSymbols.length > 0 ? ` plus focused symbols ${focusedSymbols.join(", ")}.` : "."}
             </Term>
             <Term title="Research auto-trading">
               {runtime.researchAutoTrade.enabled

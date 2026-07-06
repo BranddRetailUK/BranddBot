@@ -1,7 +1,7 @@
 export type TradingMode = "paper" | "live";
 export type TradeAction = "buy" | "sell" | "hold" | "block";
 export type OrderSide = "buy" | "sell";
-export type TradeStrategy = "rsi_ai" | "research_auto";
+export type TradeStrategy = "rsi_ai" | "research_auto" | "manual";
 
 export type MarketBar = {
   timestamp: string;
@@ -49,6 +49,38 @@ export type PortfolioHistoryResult = {
   change?: number;
   changePercent?: number;
   error?: string;
+};
+
+export type PortfolioPositionValue = {
+  symbol: string;
+  qty: number;
+  marketValue: number;
+  avgEntryPrice: number;
+  unrealizedPnl: number;
+  allocationPercent: number;
+};
+
+export type PortfolioPositionsResult = {
+  generatedAt: string;
+  positions: PortfolioPositionValue[];
+  totalMarketValue: number;
+  error?: string;
+};
+
+export type StockAsset = {
+  symbol: string;
+  name: string;
+  exchange?: string;
+  assetClass?: string;
+  status?: string;
+  tradable: boolean;
+  fractionable: boolean;
+};
+
+export type TradeSizingSettings = {
+  minBidNotional: number;
+  maxBidNotional: number;
+  updatedAt?: string;
 };
 
 export type OrderRequest = {
@@ -122,6 +154,8 @@ export type ResearchAutoTradeConfig = {
   minConfidence: number;
   minScore: number;
   notionalPerOrder: number;
+  minNotionalPerOrder: number;
+  maxNotionalPerOrder: number;
   maxItemsPerRun: number;
   maxOpenPositions: number;
   maxDailyOrders: number;
@@ -339,6 +373,7 @@ export type TradePlanResult = {
     opportunityCount: number;
     positionCount: number;
     learningNoteCount: number;
+    focusedSymbolCount: number;
     watchlist: string[];
     advisoryOnly: boolean;
   };

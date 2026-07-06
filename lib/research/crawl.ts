@@ -1,6 +1,7 @@
 import { AlpacaNewsClient, newsContentHash } from "@/lib/research/alpacaNews";
 import { analyzeNewsArticle } from "@/lib/research/scoring";
 import { getBotRuntimeConfig, getResearchRuntimeConfig } from "@/lib/config/env";
+import { getFocusedSymbols } from "@/lib/db/focusSymbols";
 import { prisma } from "@/lib/db/prisma";
 import type { NewsArticle, ResearchAnalysis, ResearchCrawlResult } from "@/lib/types/trading";
 
@@ -11,11 +12,15 @@ export async function runResearchCrawl(options?: {
   limit?: number;
   opportunityTtlHours?: number;
   minConfidence?: number;
+  focusedSymbols?: string[];
 }): Promise<ResearchCrawlResult> {
   const startedAt = new Date();
   const botConfig = getBotRuntimeConfig();
   const researchConfig = getResearchRuntimeConfig(undefined, botConfig.watchlist);
-  const symbols = (options?.symbols ?? researchConfig.symbols).map((symbol) => symbol.toUpperCase());
+  const baseSymbols = options?.symbols ?? researchConfig.symbols;
+  const focusedSymbols =
+    options?.focusedSymbols ?? (options?.symbols ? [] : await getFocusedSymbols().catch(() => []));
+  const symbols = uniqueStrings([...baseSymbols, ...focusedSymbols].map((symbol) => symbol.trim().toUpperCase()));
   const lookbackHours = options?.lookbackHours ?? researchConfig.lookbackHours;
   const limit = options?.limit ?? researchConfig.newsLimit;
   const opportunityTtlHours = options?.opportunityTtlHours ?? researchConfig.opportunityTtlHours;
