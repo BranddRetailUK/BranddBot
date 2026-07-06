@@ -1,5 +1,13 @@
 import type { BrokerAdapter } from "@/lib/broker/types";
-import type { AccountSnapshot, MarketBar, OrderRequest, OrderResult, PositionSnapshot } from "@/lib/types/trading";
+import type {
+  AccountSnapshot,
+  BrokerOrderSnapshot,
+  MarketBar,
+  OrderRequest,
+  OrderResult,
+  PositionSnapshot,
+  TradeFillActivity
+} from "@/lib/types/trading";
 
 export class MockBroker implements BrokerAdapter {
   readonly orders: OrderResult[] = [];
@@ -38,6 +46,33 @@ export class MockBroker implements BrokerAdapter {
     };
     this.orders.push(result);
     return result;
+  }
+
+  async getOrder(orderId: string): Promise<BrokerOrderSnapshot> {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) {
+      throw new Error(`Mock order ${orderId} was not found.`);
+    }
+
+    return {
+      ...order,
+      status: "filled",
+      filledAt: new Date().toISOString()
+    };
+  }
+
+  async getFillActivities(): Promise<TradeFillActivity[]> {
+    return this.orders
+      .filter((order) => order.status === "filled" || order.status === "accepted")
+      .map((order, index) => ({
+        id: `mock-fill-${index + 1}`,
+        orderId: order.id,
+        symbol: order.symbol,
+        side: order.side,
+        qty: order.qty ?? (order.notional && order.filledAvgPrice ? order.notional / order.filledAvgPrice : 0),
+        price: order.filledAvgPrice ?? 0,
+        transactionTime: new Date().toISOString()
+      }));
   }
 
   async cancelAllOrders(): Promise<void> {

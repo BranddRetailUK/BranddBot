@@ -25,6 +25,11 @@ export function testEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     MAX_DAILY_LOSS_USD: 5,
     MAX_OPEN_POSITIONS: 3,
     BOT_POLL_INTERVAL_SECONDS: 300,
+    RESEARCH_SYMBOLS: "",
+    RESEARCH_LOOKBACK_HOURS: 24,
+    RESEARCH_NEWS_LIMIT: 50,
+    RESEARCH_OPPORTUNITY_TTL_HOURS: 72,
+    RESEARCH_MIN_CONFIDENCE: 0.35,
     ...overrides
   };
 }

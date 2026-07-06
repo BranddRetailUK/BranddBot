@@ -125,6 +125,7 @@ function baseContext(signal: RsiSignal): TradingContext {
     recentTrades: [],
     realizedPnlToday: 0,
     riskLimits: testConfig().risk,
-    priorLessons: []
+    priorLessons: [],
+    researchBriefs: []
   };
 }

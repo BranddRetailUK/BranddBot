@@ -42,9 +42,10 @@ export async function runBotScan(options?: {
       maxNotionalPerOrder: config.risk.maxNotionalPerOrder
     });
     const position = positions.find((item) => item.symbol === symbol);
-    const [recentTrades, priorLessons] = await Promise.all([
+    const [recentTrades, priorLessons, researchBriefs] = await Promise.all([
       persistence.getRecentTrades(symbol),
-      persistence.getPriorLessons(symbol)
+      persistence.getPriorLessons(symbol),
+      persistence.getResearchBriefs(symbol)
     ]);
 
     await persistence.recordMarketSnapshot({
@@ -78,7 +79,8 @@ export async function runBotScan(options?: {
       recentTrades,
       realizedPnlToday,
       riskLimits: config.risk,
-      priorLessons
+      priorLessons,
+      researchBriefs
     };
 
     const aiDecision = await aiService.reason(context);

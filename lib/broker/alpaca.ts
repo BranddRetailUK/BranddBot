@@ -1,7 +1,16 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 import { getEnv, isAlpacaConfigured, type AppEnv } from "@/lib/config/env";
 import type { BrokerAdapter } from "@/lib/broker/types";
-import type { AccountSnapshot, MarketBar, OrderRequest, OrderResult, PositionSnapshot } from "@/lib/types/trading";
+import type {
+  AccountSnapshot,
+  BrokerOrderSnapshot,
+  MarketBar,
+  OrderRequest,
+  OrderResult,
+  OrderSide,
+  PositionSnapshot,
+  TradeFillActivity
+} from "@/lib/types/trading";
 
 type AlpacaClient = {
   getAccount: () => Promise<Record<string, unknown>>;
@@ -134,10 +143,36 @@ export class AlpacaBroker implements BrokerAdapter {
       symbol: String(response.symbol),
       side: order.side,
       status: String(response.status),
-      qty: toOptionalNumber(response.qty),
+      qty: toOptionalNumber(response.filled_qty) ?? toOptionalNumber(response.qty),
       notional: toOptionalNumber(response.notional),
       filledAvgPrice: toOptionalNumber(response.filled_avg_price)
     };
+  }
+
+  async getOrder(orderId: string): Promise<BrokerOrderSnapshot> {
+    this.getClient();
+    const payload = await this.fetchTradingApi<Record<string, unknown>>(`/v2/orders/${encodeURIComponent(orderId)}`);
+    return mapOrderSnapshot(payload);
+  }
+
+  async getFillActivities(options?: { after?: Date; until?: Date; symbols?: string[] }): Promise<TradeFillActivity[]> {
+    this.getClient();
+    const url = new URL("/v2/account/activities/FILL", this.env.APCA_API_BASE_URL);
+    url.searchParams.set("direction", "asc");
+    url.searchParams.set("page_size", "100");
+    if (options?.after) url.searchParams.set("after", options.after.toISOString());
+    if (options?.until) url.searchParams.set("until", options.until.toISOString());
+
+    const payload = await this.fetchTradingApi<unknown>(`${url.pathname}${url.search}`);
+    const rows = Array.isArray(payload) ? payload : [];
+    const requestedSymbols = new Set(options?.symbols?.map((symbol) => symbol.toUpperCase()) ?? []);
+
+    return rows
+      .map((row) => mapFillActivity(row))
+      .filter((activity): activity is TradeFillActivity => {
+        if (!activity) return false;
+        return requestedSymbols.size === 0 || requestedSymbols.has(activity.symbol);
+      });
   }
 
   async cancelAllOrders(): Promise<void> {
@@ -162,6 +197,59 @@ export class AlpacaBroker implements BrokerAdapter {
     }
     return this.client;
   }
+
+  private async fetchTradingApi<T>(pathAndQuery: string): Promise<T> {
+    const url = new URL(pathAndQuery, this.env.APCA_API_BASE_URL);
+    const response = await fetch(url, {
+      headers: {
+        "APCA-API-KEY-ID": this.env.APCA_API_KEY_ID,
+        "APCA-API-SECRET-KEY": this.env.APCA_API_SECRET_KEY
+      },
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(`Alpaca trading request failed: ${response.status} ${response.statusText}`);
+    }
+
+    return (await response.json()) as T;
+  }
+}
+
+function mapOrderSnapshot(order: Record<string, unknown>): BrokerOrderSnapshot {
+  return {
+    id: String(order.id),
+    symbol: String(order.symbol).toUpperCase(),
+    side: normalizeSide(order.side),
+    status: String(order.status),
+    qty: toOptionalNumber(order.filled_qty) ?? toOptionalNumber(order.qty),
+    notional: toOptionalNumber(order.notional),
+    filledAvgPrice: toOptionalNumber(order.filled_avg_price),
+    filledAt: toOptionalString(order.filled_at),
+    submittedAt: toOptionalString(order.submitted_at)
+  };
+}
+
+function mapFillActivity(row: unknown): TradeFillActivity | undefined {
+  if (!row || typeof row !== "object") return undefined;
+  const activity = row as Record<string, unknown>;
+  const symbol = toOptionalString(activity.symbol)?.toUpperCase();
+  const transactionTime = toOptionalString(activity.transaction_time);
+  if (!symbol || !transactionTime) return undefined;
+
+  return {
+    id: String(activity.id ?? `${activity.order_id ?? "unknown"}-${transactionTime}`),
+    orderId: toOptionalString(activity.order_id),
+    symbol,
+    side: normalizeSide(activity.side),
+    qty: toNumber(activity.qty),
+    price: toNumber(activity.price),
+    transactionTime
+  };
+}
+
+function normalizeSide(value: unknown): OrderSide {
+  return String(value).toLowerCase() === "sell" ? "sell" : "buy";
 }
 
 function toNumber(value: unknown): number {

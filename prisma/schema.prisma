@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -39,51 +39,99 @@ model Signal {
 }
 
 model AiAudit {
-  id                             String   @id @default(cuid())
-  symbol                         String
-  promptHash                     String
-  inputJson                      String
-  outputJson                     String
-  decision                       String
-  confidence                     Float
-  rationale                      String
-  riskFlagsJson                  String
-  learningUpdateJson             String
-  recommendedAdjustmentsJson     String
-  accepted                       Boolean
-  rejectionReasonsJson           String
-  tradeOutcomeJson               String?
-  openAiResponseId               String?
-  createdAt                      DateTime @default(now())
+  id                         String   @id @default(cuid())
+  symbol                     String
+  promptHash                 String
+  inputJson                  String
+  outputJson                 String
+  decision                   String
+  confidence                 Float
+  rationale                  String
+  riskFlagsJson              String
+  learningUpdateJson         String
+  recommendedAdjustmentsJson String
+  accepted                   Boolean
+  rejectionReasonsJson       String
+  tradeOutcomeJson           String?
+  openAiResponseId           String?
+  createdAt                  DateTime @default(now())
 
   @@index([symbol, createdAt])
   @@index([createdAt])
 }
 
 model Trade {
-  id          String   @id @default(cuid())
-  symbol      String
-  side        String
-  qty         Float?
-  notional    Float?
-  price       Float?
-  orderId     String?
-  status      String
-  realizedPnl Float?
-  rationale   String?
-  createdAt   DateTime @default(now())
-  closedAt    DateTime?
+  id               String    @id @default(cuid())
+  symbol           String
+  side             String
+  qty              Float?
+  notional         Float?
+  price            Float?
+  orderId          String?
+  status           String
+  realizedPnl      Float?
+  rationale        String?
+  tradeOutcomeJson String?
+  filledAt         DateTime?
+  reconciledAt     DateTime?
+  createdAt        DateTime  @default(now())
+  closedAt         DateTime?
+
+  @@index([symbol, createdAt])
+  @@index([orderId])
+  @@index([status, createdAt])
+}
+
+model LearningEvent {
+  id        String   @id @default(cuid())
+  symbol    String
+  reward    Float
+  summary   String
+  source    String
+  createdAt DateTime @default(now())
 
   @@index([symbol, createdAt])
 }
 
-model LearningEvent {
-  id          String   @id @default(cuid())
-  symbol      String
-  reward      Float
-  summary     String
-  source      String
-  createdAt   DateTime @default(now())
+model ResearchItem {
+  id             String   @id @default(cuid())
+  externalId     String   @unique
+  symbol         String
+  source         String
+  sourceUrl      String
+  headline       String
+  summary        String?
+  contentHash    String
+  allSymbolsJson String
+  sentiment      String
+  catalyst       String?
+  riskFlagsJson  String
+  confidence     Float
+  publishedAt    DateTime
+  discoveredAt   DateTime @default(now())
+  expiresAt      DateTime
 
-  @@index([symbol, createdAt])
+  @@index([symbol, publishedAt])
+  @@index([expiresAt])
+}
+
+model Opportunity {
+  id                String   @id @default(cuid())
+  symbol            String
+  direction         String
+  thesis            String
+  catalyst          String
+  confidence        Float
+  score             Float
+  sourceItemIdsJson String
+  riskFlagsJson     String
+  status            String   @default("active")
+  firstSeenAt       DateTime @default(now())
+  lastSeenAt        DateTime @default(now()) @updatedAt
+  expiresAt         DateTime
+  createdAt         DateTime @default(now())
+
+  @@index([symbol, status, expiresAt])
+  @@index([score])
+  @@index([expiresAt])
 }

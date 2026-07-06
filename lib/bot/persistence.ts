@@ -4,6 +4,7 @@ import type {
   MarketBar,
   OrderResult,
   RecentTradeSummary,
+  ResearchBrief,
   RiskGateResult,
   RsiSignal
 } from "@/lib/types/trading";
@@ -11,6 +12,7 @@ import type {
 export interface ScanPersistence {
   getRecentTrades(symbol: string): Promise<RecentTradeSummary[]>;
   getPriorLessons(symbol: string): Promise<string[]>;
+  getResearchBriefs(symbol: string): Promise<ResearchBrief[]>;
   getRealizedPnlToday(): Promise<number>;
   recordMarketSnapshot(params: { symbol: string; timeframe: string; price: number; rsi?: number; bars: MarketBar[] }): Promise<void>;
   recordSignal(signal: RsiSignal): Promise<void>;
@@ -36,9 +38,12 @@ export function createPrismaScanPersistence(): ScanPersistence {
         symbol: row.symbol,
         side: row.side,
         notional: row.notional ?? undefined,
+        qty: row.qty ?? undefined,
+        price: row.price ?? undefined,
         realizedPnl: row.realizedPnl ?? undefined,
         status: row.status,
-        createdAt: row.createdAt.toISOString()
+        createdAt: row.createdAt.toISOString(),
+        closedAt: row.closedAt?.toISOString()
       }));
     },
 
@@ -49,6 +54,29 @@ export function createPrismaScanPersistence(): ScanPersistence {
         take: 8
       });
       return rows.map((row) => row.summary);
+    },
+
+    async getResearchBriefs(symbol) {
+      const rows = await prisma.opportunity.findMany({
+        where: {
+          symbol,
+          status: "active",
+          expiresAt: { gt: new Date() }
+        },
+        orderBy: [{ score: "desc" }, { lastSeenAt: "desc" }],
+        take: 5
+      });
+
+      return rows.map((row) => ({
+        symbol: row.symbol,
+        direction: parseDirection(row.direction),
+        thesis: row.thesis,
+        catalyst: row.catalyst,
+        confidence: row.confidence,
+        score: row.score,
+        riskFlags: parseJsonArray(row.riskFlagsJson),
+        expiresAt: row.expiresAt.toISOString()
+      }));
     },
 
     async getRealizedPnlToday() {
@@ -145,6 +173,9 @@ export function createNoopScanPersistence(): ScanPersistence {
     async getPriorLessons() {
       return [];
     },
+    async getResearchBriefs() {
+      return [];
+    },
     async getRealizedPnlToday() {
       return 0;
     },
@@ -153,4 +184,18 @@ export function createNoopScanPersistence(): ScanPersistence {
     async recordAiAudit() {},
     async recordTrade() {}
   };
+}
+
+function parseDirection(value: string): ResearchBrief["direction"] {
+  if (value === "bullish" || value === "bearish") return value;
+  return "watch";
+}
+
+function parseJsonArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
+  } catch {
+    return [];
+  }
 }

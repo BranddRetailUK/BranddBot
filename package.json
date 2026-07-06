@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "start": "next start",
     "build": "prisma generate && next build",
     "lint": "eslint .",
     "test": "vitest run",
@@ -14,6 +15,8 @@
     "db:prisma-push": "prisma db push",
     "bot:scan": "node --import tsx scripts/run-scan.ts",
     "bot:worker": "node --import tsx scripts/worker.ts",
+    "bot:reconcile": "node --import tsx scripts/reconcile-trades.ts",
+    "research:crawl": "node --import tsx scripts/research-crawl.ts",
     "health:alpaca": "node --import tsx scripts/alpaca-health.ts"
   },
   "dependencies": {
@@ -36,6 +39,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.10",
     "prisma": "^5.22.0",
+    "railway": "^3.4.1",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"

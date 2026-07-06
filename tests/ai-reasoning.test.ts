@@ -127,6 +127,7 @@ function baseContext(): TradingContext {
       maxOpenPositions: 3,
       minAiConfidence: 0.55
     },
-    priorLessons: []
+    priorLessons: [],
+    researchBriefs: []
   };
 }

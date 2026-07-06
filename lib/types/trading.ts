@@ -48,6 +48,21 @@ export type OrderResult = {
   filledAvgPrice?: number;
 };
 
+export type BrokerOrderSnapshot = OrderResult & {
+  filledAt?: string;
+  submittedAt?: string;
+};
+
+export type TradeFillActivity = {
+  id: string;
+  orderId?: string;
+  symbol: string;
+  side: OrderSide;
+  qty: number;
+  price: number;
+  transactionTime: string;
+};
+
 export type RsiSignal = {
   symbol: string;
   action: Exclude<TradeAction, "block">;
@@ -82,9 +97,23 @@ export type RecentTradeSummary = {
   symbol: string;
   side: string;
   notional?: number;
+  qty?: number;
+  price?: number;
   realizedPnl?: number;
   status: string;
   createdAt: string;
+  closedAt?: string;
+};
+
+export type ResearchBrief = {
+  symbol: string;
+  direction: "bullish" | "bearish" | "watch";
+  thesis: string;
+  catalyst: string;
+  confidence: number;
+  score: number;
+  riskFlags: string[];
+  expiresAt: string;
 };
 
 export type TradingContext = {
@@ -115,6 +144,7 @@ export type TradingContext = {
   realizedPnlToday: number;
   riskLimits: RiskLimits;
   priorLessons: string[];
+  researchBriefs: ResearchBrief[];
 };
 
 export type LearningUpdate = {
@@ -169,4 +199,47 @@ export type ScanResult = {
   dryRun: boolean;
   tradingMode: TradingMode;
   symbols: ScanSymbolResult[];
+};
+
+export type NewsArticle = {
+  id: string;
+  source: string;
+  url: string;
+  headline: string;
+  summary?: string;
+  content?: string;
+  symbols: string[];
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type ResearchAnalysis = {
+  sentiment: ResearchBrief["direction"];
+  catalyst: string;
+  thesis: string;
+  confidence: number;
+  score: number;
+  riskFlags: string[];
+  expiresAt: string;
+};
+
+export type ResearchCrawlResult = {
+  startedAt: string;
+  finishedAt: string;
+  source: string;
+  scannedArticles: number;
+  storedItems: number;
+  updatedItems: number;
+  opportunitiesCreated: number;
+  opportunitiesUpdated: number;
+  symbols: string[];
+};
+
+export type ReconcileResult = {
+  startedAt: string;
+  finishedAt: string;
+  checkedTrades: number;
+  updatedOrders: number;
+  closedTrades: number;
+  learningEvents: number;
 };

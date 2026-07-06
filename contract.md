@@ -3,13 +3,13 @@
 repo:
   name: ai-rsi-trading-bot
   product_name: BranddBot
-  description: AI-gated RSI paper-trading scaffold for US stocks/ETFs.
-  status: scaffold
+  description: AI-gated RSI paper-trading bot for US stocks/ETFs with outcome learning and source-backed research.
+  status: paper_trading_research_scaffold
   language: TypeScript
   module_system: ESM
   framework: Next.js App Router
   ui_runtime: React
-  db: SQLite via Prisma
+  db: PostgreSQL via Prisma
   broker_primary: Alpaca Trading API paper account
   market_data_primary: Alpaca Market Data API, IEX feed
   ai_primary: OpenAI Responses API
@@ -24,6 +24,7 @@ agent_boot_contract:
 package:
   scripts:
     dev: "next dev"
+    start: "next start"
     build: "prisma generate && next build"
     lint: "eslint ."
     test: "vitest run"
@@ -33,6 +34,8 @@ package:
     db_prisma_push: "prisma db push"
     bot_scan: "node --import tsx scripts/run-scan.ts"
     bot_worker: "node --import tsx scripts/worker.ts"
+    bot_reconcile: "node --import tsx scripts/reconcile-trades.ts"
+    research_crawl: "node --import tsx scripts/research-crawl.ts"
     health_alpaca: "node --import tsx scripts/alpaca-health.ts"
   deps:
     next: "^16.2.10"
@@ -47,6 +50,7 @@ package:
   dev_deps:
     typescript: "^6.0.3"
     prisma: "^5.22.0"
+    railway: "^3.4.1"
     tsx: "^4.23.0"
     vitest: "^4.1.9"
     eslint: "^9.39.4"
@@ -141,19 +145,40 @@ env_contract:
       type: number_string
       default: 300
       runtime_min: 30
+    RESEARCH_SYMBOLS:
+      type: csv_symbols
+      default: ""
+      behavior: Empty uses WATCHLIST as fallback research symbols.
+    RESEARCH_LOOKBACK_HOURS:
+      type: number_string
+      default: 24
+      runtime_min: 1
+    RESEARCH_NEWS_LIMIT:
+      type: number_string
+      default: 50
+      runtime_clamp: [1, 50]
+    RESEARCH_OPPORTUNITY_TTL_HOURS:
+      type: number_string
+      default: 72
+      runtime_min: 1
+    RESEARCH_MIN_CONFIDENCE:
+      type: number_string
+      default: 0.35
+      runtime_clamp: [0, 1]
     DATABASE_URL:
       type: string
-      purpose: Prisma SQLite URL, normally file:./dev.db.
+      purpose: Prisma PostgreSQL URL, normally Railway Postgres in hosted environments.
   helpers:
     getEnv: zod parse of process.env.
     isOpenAiConfigured: OPENAI_API_KEY non-empty.
     isAlpacaConfigured: APCA_API_KEY_ID and APCA_API_SECRET_KEY non-empty.
     getBotRuntimeConfig: converts env into BotRuntimeConfig.
+    getResearchRuntimeConfig: converts env into research crawler config.
     getPublicRuntimeSummary: safe dashboard summary without secrets.
 
 data_model:
   source: prisma/schema.prisma
-  datasource: sqlite
+  datasource: postgresql
   models:
     BotConfig:
       key: String id
@@ -173,13 +198,22 @@ data_model:
       indexes: [[symbol, createdAt], [createdAt]]
       use: Full audit of AI decision, risk gate, and optional order result.
     Trade:
-      fields: [id, symbol, side, qty, notional, price, orderId, status, realizedPnl, rationale, createdAt, closedAt]
-      indexes: [[symbol, createdAt]]
-      use: Records submitted paper orders and later trade outcomes.
+      fields: [id, symbol, side, qty, notional, price, orderId, status, realizedPnl, rationale, tradeOutcomeJson, filledAt, reconciledAt, createdAt, closedAt]
+      indexes: [[symbol, createdAt], [orderId], [status, createdAt]]
+      use: Records submitted paper orders, reconciled fills, and realized outcomes.
     LearningEvent:
       fields: [id, symbol, reward, summary, source, createdAt]
       indexes: [[symbol, createdAt]]
-      use: Stores AI learning summaries used as priorLessons in future scans.
+      use: Stores AI and reconciliation learning summaries used as priorLessons in future scans.
+    ResearchItem:
+      fields: [id, externalId, symbol, source, sourceUrl, headline, summary, contentHash, allSymbolsJson, sentiment, catalyst, riskFlagsJson, confidence, publishedAt, discoveredAt, expiresAt]
+      unique: [externalId]
+      indexes: [[symbol, publishedAt], [expiresAt]]
+      use: Stores source-backed news records used to create opportunities.
+    Opportunity:
+      fields: [id, symbol, direction, thesis, catalyst, confidence, score, sourceItemIdsJson, riskFlagsJson, status, firstSeenAt, lastSeenAt, expiresAt, createdAt]
+      indexes: [[symbol, status, expiresAt], [score], [expiresAt]]
+      use: Stores active or expired research-derived market opportunities.
 
 type_contract:
   source: lib/types/trading.ts
@@ -192,15 +226,22 @@ type_contract:
     PositionSnapshot: { symbol, qty, marketValue, avgEntryPrice, unrealizedPnl }
     OrderRequest: { symbol, side, notional?, qty?, type?, timeInForce?, clientOrderId? }
     OrderResult: { id, symbol, side, status, notional?, qty?, filledAvgPrice? }
+    BrokerOrderSnapshot: OrderResult plus { filledAt?, submittedAt? }
+    TradeFillActivity: { id, orderId?, symbol, side, qty, price, transactionTime }
     RsiSignal: { symbol, action: buy_or_sell_or_hold, rsi?, previousRsi?, confidence, reason, recommendedNotional? }
     RiskLimits: { maxNotionalPerOrder, maxPositionNotionalPerSymbol, maxDailyLossUsd, maxOpenPositions, minAiConfidence }
     BotRuntimeConfig: { watchlist, rsiPeriod, timeframe, oversoldThreshold, overboughtThreshold, tradingMode, liveTradingEnabled, pollIntervalSeconds, risk }
-    TradingContext: { symbol, generatedAt, currentPrice, barSummary, rsi, deterministicSignal, position?, account, openPositionsCount, recentTrades, realizedPnlToday, riskLimits, priorLessons }
+    ResearchBrief: { symbol, direction, thesis, catalyst, confidence, score, riskFlags, expiresAt }
+    TradingContext: { symbol, generatedAt, currentPrice, barSummary, rsi, deterministicSignal, position?, account, openPositionsCount, recentTrades, realizedPnlToday, riskLimits, priorLessons, researchBriefs }
     AiTradingDecision: { decision, confidence, rationale, riskFlags, learningUpdate, recommendedParameterAdjustments }
     AiDecisionResult: AiTradingDecision plus { configured, promptHash, inputJson, outputJson, openAiResponseId? }
     RiskGateResult: { accepted, finalAction, reasons, order? }
     ScanSymbolResult: { symbol, signal, aiDecision, riskGate, order? }
     ScanResult: { startedAt, finishedAt, dryRun, tradingMode, symbols }
+    NewsArticle: { id, source, url, headline, summary?, content?, symbols, createdAt, updatedAt? }
+    ResearchAnalysis: { sentiment, catalyst, thesis, confidence, score, riskFlags, expiresAt }
+    ResearchCrawlResult: { startedAt, finishedAt, source, scannedArticles, storedItems, updatedItems, opportunitiesCreated, opportunitiesUpdated, symbols }
+    ReconcileResult: { startedAt, finishedAt, checkedTrades, updatedOrders, closedTrades, learningEvents }
 
 strategy_contract:
   source: lib/strategy/rsi.ts
@@ -249,7 +290,7 @@ ai_contract:
       system: "reasoning layer for a paper-trading RSI bot; may reduce confidence, hold, or block; must not override deterministic RSI or risk limits"
       user: compact TradingContext JSON
   compact_context_fields:
-    [symbol, generatedAt, currentPrice, barSummary, rsi, deterministicSignal, position_or_null, account.buyingPower, account.cash, account.portfolioValue, openPositionsCount, recentTrades_first_8, realizedPnlToday, riskLimits, priorLessons_first_8]
+    [symbol, generatedAt, currentPrice, barSummary, rsi, deterministicSignal, position_or_null, account.buyingPower, account.cash, account.portfolioValue, openPositionsCount, recentTrades_first_8, realizedPnlToday, riskLimits, priorLessons_first_8, researchBriefs_first_5]
   response_schema_required:
     decision: enum buy/sell/hold/block
     confidence: number 0..1
@@ -281,6 +322,8 @@ broker_contract:
     getPositions: Promise<PositionSnapshot[]>
     getBars: Promise<Record<symbol, MarketBar[]>>
     submitOrder: Promise<OrderResult>
+    getOrder: Promise<BrokerOrderSnapshot>
+    getFillActivities: Promise<TradeFillActivity[]>
     cancelAllOrders: Promise<void>
     healthCheck: Promise<{ok,message}>
   alpaca_source: lib/broker/alpaca.ts
@@ -301,6 +344,13 @@ broker_contract:
     submitOrder:
       creates Alpaca order with symbol, side, type default market, time_in_force default day, qty, notional, client_order_id.
       returns id, symbol, side, status, qty, notional, filledAvgPrice.
+    getOrder:
+      endpoint: APCA_API_BASE_URL + "/v2/orders/{orderId}"
+      behavior: returns order status, filled quantity, filled average price, submittedAt, filledAt.
+    getFillActivities:
+      endpoint: APCA_API_BASE_URL + "/v2/account/activities/FILL"
+      query: after, until, direction=asc, page_size=100.
+      behavior: maps fill activities to TradeFillActivity; currently available for reconciliation extension use.
     cancelAllOrders: client.cancelAllOrders.
   mock_source: lib/broker/mock.ts
   mock_behavior:
@@ -308,6 +358,52 @@ broker_contract:
     positions: mutable array
     bars: mutable symbol map
     submitOrder: appends accepted mock order with optional last close as filledAvgPrice.
+    getOrder: returns matching mock order as filled.
+    getFillActivities: maps mock orders into synthetic fills.
+
+reconciliation_contract:
+  source: lib/bot/reconcile.ts
+  function: reconcileTrades
+  options:
+    broker: injectable BrokerAdapter, default new AlpacaBroker()
+    since: default now minus 10 days
+    createLearningEvents: default true
+  flow:
+    1: Load recent trades with orderId that are unreconciled, non-terminal, missing fill data, or filled sells without realizedPnl.
+    2: Fetch Alpaca order snapshots by orderId.
+    3: Update Trade status, qty, price, filledAt, reconciledAt, and tradeOutcomeJson.
+    4: For filled sell trades without realizedPnl, match against earliest open filled buys for the same symbol.
+    5: Store realizedPnl and closedAt on the sell and matched buy trades.
+    6: Create LearningEvent(source=alpaca_reconciliation) when a sell closes at least one buy.
+  reward:
+    formula: clamp(realizedPnl / sellNotional, -1, 1)
+  limitation:
+    matching_model: FIFO-style first pass; partial buy lots are not yet tracked with remaining quantity.
+
+research_contract:
+  sources: [lib/research/alpacaNews.ts, lib/research/scoring.ts, lib/research/crawl.ts]
+  news_provider: Alpaca Market Data News API
+  endpoint: ALPACA_DATA_BASE_URL + "/v1beta1/news"
+  crawl_function: runResearchCrawl
+  script: npm run research:crawl
+  query:
+    symbols: RESEARCH_SYMBOLS or WATCHLIST fallback
+    start: now minus RESEARCH_LOOKBACK_HOURS
+    limit: RESEARCH_NEWS_LIMIT clamped 1..50
+    include_content: false
+    exclude_contentless: false
+  storage:
+    - Upsert ResearchItem by externalId "{article.id}:{symbol}".
+    - Store source URL, headline, source, published timestamp, symbols JSON, content hash, sentiment, catalyst, risk flags, confidence, expiry.
+    - Expire old Opportunity rows before each crawl.
+    - Create/update active Opportunity rows by symbol and direction when confidence >= RESEARCH_MIN_CONFIDENCE.
+  scoring:
+    type: deterministic keyword classifier.
+    directions: bullish, bearish, watch.
+    positive_terms_examples: [approval, beat, buyback, contract, guidance raised, launch, partnership, upgrade]
+    risk_terms_examples: [bankruptcy, downgrade, investigation, lawsuit, miss, probe, recall, warning]
+  invariant:
+    Research opportunities are advisory context only. They cannot create or approve trades without RSI and risk-gate alignment.
 
 risk_gate_contract:
   source: lib/bot/risk.ts
@@ -364,7 +460,7 @@ scan_contract:
       - currentPrice = last bar close or 0
       - create deterministic RSI signal
       - find current position
-      - fetch recentTrades and priorLessons
+      - fetch recentTrades, priorLessons, and active researchBriefs
       - record MarketSnapshot
       - record Signal
       - build TradingContext
@@ -382,10 +478,13 @@ persistence_contract:
   methods:
     getRecentTrades:
       query: Trade rows by symbol desc take 8
-      output: symbol, side, notional, realizedPnl, status, createdAt iso
+      output: symbol, side, notional, qty, price, realizedPnl, status, createdAt iso, closedAt iso
     getPriorLessons:
       query: LearningEvent by symbol desc take 8
       output: summary strings
+    getResearchBriefs:
+      query: active Opportunity rows by symbol where expiresAt > now order by score desc take 5
+      output: ResearchBrief[]
     getRealizedPnlToday:
       query: Trade rows since current UTC midnight where realizedPnl not null
       output: sum realizedPnl
@@ -426,21 +525,46 @@ api_contract:
 
 ui_contract:
   dashboard:
-    source: app/dashboard/page.tsx
-    route: /dashboard
-    dynamic: force-dynamic
-    reads:
-      - getBotEnabled
-      - latest 12 AiAudit rows desc
-      - latest 8 Trade rows desc
-      - getPublicRuntimeSummary
-    displays:
-      - badges for PAPER/LIVE, OpenAI configured/missing, Alpaca configured/missing, Enabled/Paused
-      - model, watchlist, max order, accepted audit count
-      - controls
-      - latest AI decision
-      - audit table
-      - recent paper trades
+    layout:
+      source: app/dashboard/layout.tsx
+      nav_source: app/dashboard/DashboardNav.tsx
+      top_nav_routes: [/dashboard, /dashboard/decisions, /dashboard/trades, /dashboard/research, /dashboard/guide]
+    overview:
+      source: app/dashboard/page.tsx
+      route: /dashboard
+      dynamic: force-dynamic
+      reads:
+        - getBotEnabled
+        - latest AiAudit
+        - active Opportunity count
+        - open Trade count
+        - getPublicRuntimeSummary
+      displays:
+        - badges for PAPER/LIVE, OpenAI configured/missing, Alpaca configured/missing, Enabled/Paused
+        - model, watchlist, max order, active opportunity count
+        - controls
+        - latest AI decision
+        - beginner-friendly explanations for RSI, watchlist, risk gate, open paper trades, research symbols, max position size
+    decisions:
+      source: app/dashboard/decisions/page.tsx
+      route: /dashboard/decisions
+      dynamic: force-dynamic
+      displays: Recent AiAudit rows with decision, confidence, accepted status, rationale, rejection reasons.
+    trades:
+      source: app/dashboard/trades/page.tsx
+      route: /dashboard/trades
+      dynamic: force-dynamic
+      displays: Trade records, closed trade count, realized P/L, recent LearningEvent rows.
+    research:
+      source: app/dashboard/research/page.tsx
+      route: /dashboard/research
+      dynamic: force-dynamic
+      displays: Active Opportunity rows and recent ResearchItem source rows.
+    guide:
+      source: app/dashboard/guide/page.tsx
+      route: /dashboard/guide
+      dynamic: static
+      displays: Beginner-friendly definitions for paper trading, symbol, ETF, RSI, oversold, overbought, notional, position, realized P/L, risk gate, catalyst, confidence.
   controls:
     source: app/dashboard/BotControls.tsx
     buttons:
@@ -466,9 +590,48 @@ cli_contract:
     scripts/run-scan.ts:
       behavior: runBotScan; default dryRun true; `--paper` sets dryRun false; print ScanResult JSON.
     scripts/worker.ts:
-      behavior: infinite loop; reads BotConfig enabled; if enabled runBotScan dryRun false; logs per-symbol final action and accepted; sleeps pollIntervalSeconds.
+      behavior: infinite loop; reads BotConfig enabled; if enabled reconcileTrades before and after runBotScan dryRun false; logs reconciliation and per-symbol final action/accepted; sleeps pollIntervalSeconds.
+    scripts/reconcile-trades.ts:
+      behavior: run reconcileTrades; optional `--days=N`; print ReconcileResult JSON.
+    scripts/research-crawl.ts:
+      behavior: run runResearchCrawl; optional `--symbols=AAPL,MSFT`, `--limit=N`, `--lookback-hours=N`; print ResearchCrawlResult JSON.
     scripts/db-push.mjs:
-      behavior: Prisma db push wrapper used by npm run db:push.
+      behavior: direct Prisma db push wrapper used by npm run db:push.
+
+railway_runtime_contract:
+  config_source: .railway/railway.ts
+  helper_docs:
+    - .railway/README.md
+    - .agents/skills/railway-config/SKILL.md
+  sdk_dependency:
+    package: railway
+    version: "^3.4.1"
+    node_engine_note: SDK declares node >=22; local repo tests/build currently run under Node 20, but Railway IaC evaluation succeeds.
+  intended_services:
+    web:
+      start_command: npm start
+      build_command: npm run build
+      pre_deploy_command: npm run db:push
+      purpose: Next dashboard and API routes.
+    worker:
+      start_command: npm run bot:worker
+      build_command: npm run build
+      purpose: Always-on paper scan loop and reconciliation around scans.
+    research_cron:
+      start_command: npm run research:crawl
+      build_command: npm run build
+      cron_schedule_utc: "*/30 12-21 * * 1-5"
+      purpose: Scheduled source-backed research ingestion; should exit when complete.
+    reconcile_cron_optional:
+      start_command: npm run bot:reconcile
+      build_command: npm run build
+      cron_schedule_utc: "*/15 12-21 * * 1-5"
+      purpose: Scheduled reconciliation when not relying only on worker.
+  database: Railway PostgreSQL via DATABASE_URL.
+  database_volume: branddbot-postgres-volume must remain represented in .railway/railway.ts to avoid destructive volume deletion plans.
+  service_variables: DATABASE_URL is preserved in .railway/railway.ts; OpenAI and Alpaca secrets must remain Railway variables or be set in Railway without committing values.
+  build_command: npm run build
+  deploy_source: GitHub auto-deploy after push to main.
 
 safety_invariants:
   - Keep `.env` ignored and never expose secret values.
@@ -488,25 +651,28 @@ training_learning_current:
     - recordAiAudit stores learningUpdateJson.
     - Non-empty learningUpdate.summary becomes LearningEvent(source=openai).
     - Future scans include up to 8 priorLessons for same symbol in TradingContext.
+    - reconcileTrades updates paper order fills and creates LearningEvent(source=alpaca_reconciliation) when filled sells close prior buys.
+    - Future scans include up to 5 active researchBriefs for same symbol in TradingContext.
+    - Research crawler stores source-backed ResearchItem rows and active Opportunity rows from Alpaca News.
   limitations:
-    - No automatic closed-trade reconciliation yet.
-    - Trade.realizedPnl is not backfilled from Alpaca activities yet.
-    - Learning reward is model-estimated, not verified by realized PnL.
+    - Closed-trade reconciliation is first-pass FIFO-style matching and does not yet track partial lot remaining quantity.
+    - Some learning rewards are still model-estimated until a trade closes and reconciliation creates outcome events.
     - AI recommendedParameterAdjustments are stored but not applied.
     - No backtesting or walk-forward evaluation exists yet.
-    - No web research ingestion exists yet.
-    - No opportunity discovery beyond configured WATCHLIST exists yet.
+    - Research scoring is deterministic keyword scoring, not a trained market model.
+    - Research source coverage is currently Alpaca News only.
+    - Opportunity discovery uses RESEARCH_SYMBOLS or WATCHLIST fallback; it does not crawl arbitrary websites.
 
 intended_next_phase:
   user_goal: Run an RSI bot that learns from trades and does web research to find potential market opportunities.
   recommended_sequence:
-    1: Add broker reconciliation to update Trade fills, closedAt, realizedPnl, and tradeOutcomeJson from Alpaca activities/orders.
-    2: Convert LearningEvent rewardSignal to use realized outcomes after position close.
-    3: Add explicit ResearchItem/Opportunity data model before using web research in trading context.
-    4: Add research ingestion with source URLs, timestamps, symbols, thesis, catalysts, risk flags, confidence, and expiry.
-    5: Add opportunity watchlist expansion as advisory only; deterministic strategy and risk gates still decide entries.
-    6: Add backtest harness for RSI params and paper-vs-hypothetical outcome comparison.
-    7: Add dashboard views for research/opportunities and closed trade learning metrics.
+    1: Run the Postgres schema push against Railway DATABASE_URL.
+    2: Configure Railway services with web, worker, and research cron commands.
+    3: Collect paper-trading outcomes through worker scans and reconciliation before tuning parameters.
+    4: Add backtest harness for RSI params and paper-vs-hypothetical outcome comparison.
+    5: Add lot-level remaining quantity tracking for partial exits.
+    6: Add more allowed research feeds with source URLs, timestamps, symbols, thesis, catalysts, risk flags, confidence, and expiry.
+    7: Add opportunity watchlist expansion as advisory only; deterministic strategy and risk gates still decide entries.
   research_safety:
     - Web research can propose symbols or catalysts but must not bypass deterministic RSI or risk gates.
     - Research data must be timestamped because market/news data decays quickly.
@@ -535,6 +701,6 @@ known_runtime_state_2026_07_06:
     npm_run_bot_scan: ok dryRun true; no orders; held/blocked due insufficient 5Min bars before market open
     npm_run_test: 2 files passed, 5 tests passed
     npm_run_lint: ok
-    npm_run_build: ok
+    npm_run_build: ok with Postgres-shaped DATABASE_URL override
     localhost_dashboard: http://localhost:3000/dashboard returned 200
   caveat: This section is a point-in-time note and may become stale.

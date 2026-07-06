@@ -1,3 +1,4 @@
+import { reconcileTrades } from "@/lib/bot/reconcile";
 import { runBotScan } from "@/lib/bot/scan";
 import { getBotRuntimeConfig } from "@/lib/config/env";
 import { getBotEnabled } from "@/lib/db/botConfig";
@@ -11,11 +12,17 @@ while (true) {
 
   if (enabled) {
     try {
+      const beforeScan = await reconcileTrades();
       const result = await runBotScan({ dryRun: false, config });
+      const afterScan = await reconcileTrades();
       console.log(
         JSON.stringify(
           {
             finishedAt: result.finishedAt,
+            reconciled: {
+              beforeScan,
+              afterScan
+            },
             symbols: result.symbols.map((symbol) => ({
               symbol: symbol.symbol,
               action: symbol.riskGate.finalAction,

@@ -127,7 +127,8 @@ export class AIReasoningService {
       recentTrades: context.recentTrades.slice(0, 8),
       realizedPnlToday: context.realizedPnlToday,
       riskLimits: context.riskLimits,
-      priorLessons: context.priorLessons.slice(0, 8)
+      priorLessons: (context.priorLessons ?? []).slice(0, 8),
+      researchBriefs: (context.researchBriefs ?? []).slice(0, 5)
     };
   }
 }

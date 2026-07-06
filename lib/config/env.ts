@@ -45,7 +45,12 @@ const envSchema = z.object({
   MAX_POSITION_NOTIONAL_PER_SYMBOL: numberFromEnv(25),
   MAX_DAILY_LOSS_USD: numberFromEnv(5),
   MAX_OPEN_POSITIONS: numberFromEnv(3),
-  BOT_POLL_INTERVAL_SECONDS: numberFromEnv(300)
+  BOT_POLL_INTERVAL_SECONDS: numberFromEnv(300),
+  RESEARCH_SYMBOLS: z.string().optional().default(""),
+  RESEARCH_LOOKBACK_HOURS: numberFromEnv(24),
+  RESEARCH_NEWS_LIMIT: numberFromEnv(50),
+  RESEARCH_OPPORTUNITY_TTL_HOURS: numberFromEnv(72),
+  RESEARCH_MIN_CONFIDENCE: numberFromEnv(0.35)
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -89,6 +94,7 @@ export function getBotRuntimeConfig(env = getEnv()): BotRuntimeConfig {
 export function getPublicRuntimeSummary() {
   const env = getEnv();
   const config = getBotRuntimeConfig(env);
+  const researchSymbols = getResearchSymbols(env, config.watchlist);
 
   return {
     openAiConfigured: isOpenAiConfigured(env),
@@ -105,6 +111,31 @@ export function getPublicRuntimeSummary() {
       oversold: config.oversoldThreshold,
       overbought: config.overboughtThreshold
     },
-    risk: config.risk
+    risk: config.risk,
+    research: {
+      symbols: researchSymbols,
+      lookbackHours: Math.max(1, env.RESEARCH_LOOKBACK_HOURS),
+      newsLimit: Math.min(50, Math.max(1, Math.floor(env.RESEARCH_NEWS_LIMIT))),
+      opportunityTtlHours: Math.max(1, env.RESEARCH_OPPORTUNITY_TTL_HOURS),
+      minConfidence: Math.min(1, Math.max(0, env.RESEARCH_MIN_CONFIDENCE))
+    }
   };
+}
+
+export function getResearchRuntimeConfig(env = getEnv(), fallbackSymbols?: string[]) {
+  return {
+    symbols: getResearchSymbols(env, fallbackSymbols),
+    lookbackHours: Math.max(1, env.RESEARCH_LOOKBACK_HOURS),
+    newsLimit: Math.min(50, Math.max(1, Math.floor(env.RESEARCH_NEWS_LIMIT))),
+    opportunityTtlHours: Math.max(1, env.RESEARCH_OPPORTUNITY_TTL_HOURS),
+    minConfidence: Math.min(1, Math.max(0, env.RESEARCH_MIN_CONFIDENCE))
+  };
+}
+
+function getResearchSymbols(env: AppEnv, fallbackSymbols?: string[]): string[] {
+  const symbols = env.RESEARCH_SYMBOLS.split(",")
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter(Boolean);
+
+  return symbols.length > 0 ? symbols : fallbackSymbols ?? getBotRuntimeConfig(env).watchlist;
 }
