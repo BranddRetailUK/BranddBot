@@ -447,6 +447,7 @@ asset_search_contract:
   consumers:
     - GET /api/stocks/search
     - manual_order_contract asset validation
+    - dashboard research and trade-plan pages for best-effort company names beside ticker symbols
 
 reconciliation_contract:
   source: lib/bot/reconcile.ts
@@ -815,7 +816,7 @@ ui_contract:
         - Latest TradePlan generated timestamp and advisory-only badges.
         - Plan item metrics for total items, RSI eligible items, and tradable candidates.
         - Input badges including opportunity count, current positions, learning notes, focused symbols, and advisory-only mode.
-        - Ranked table with candidate symbol, suggested action, confidence, thesis, catalyst/news reason, source links, risk notes, RSI eligibility, tradableNow, and tradability reason.
+        - Ranked table with candidate symbol plus best-effort company name from Alpaca assets, suggested action, confidence, thesis, catalyst/news reason, source links, risk notes, RSI eligibility, tradableNow, and tradability reason.
     trades:
       source: app/dashboard/trades/page.tsx
       route: /dashboard/trades
@@ -851,7 +852,7 @@ ui_contract:
       source: app/dashboard/research/page.tsx
       route: /dashboard/research
       dynamic: force-dynamic
-      displays: Active Opportunity rows and recent ResearchItem source rows.
+      displays: Active Opportunity rows and recent ResearchItem source rows, showing ticker plus best-effort company name from Alpaca assets when available.
   controls:
     source: app/dashboard/BotControls.tsx
     buttons:

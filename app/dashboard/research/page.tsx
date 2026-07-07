@@ -1,4 +1,6 @@
+import { SymbolIdentity } from "@/app/dashboard/SymbolIdentity";
 import { prisma } from "@/lib/db/prisma";
+import { getStockAssetNameMap } from "@/lib/market/assets";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,10 @@ export default async function ResearchPage() {
       .catch(() => []),
     prisma.researchItem.findMany({ orderBy: { publishedAt: "desc" }, take: 40 }).catch(() => [])
   ]);
+  const companyNames: Record<string, string> = await getStockAssetNameMap([
+    ...opportunities.map((opportunity) => opportunity.symbol),
+    ...researchItems.map((item) => item.symbol)
+  ]).catch(() => ({}));
 
   return (
     <div className="stack">
@@ -52,7 +58,9 @@ export default async function ResearchPage() {
               ) : (
                 opportunities.map((opportunity) => (
                   <tr key={opportunity.id}>
-                    <td>{opportunity.symbol}</td>
+                    <td>
+                      <SymbolIdentity symbol={opportunity.symbol} companyName={companyNames[opportunity.symbol]} />
+                    </td>
                     <td className={`direction ${opportunity.direction}`}>{labelDirection(opportunity.direction)}</td>
                     <td>{opportunity.confidence.toFixed(2)}</td>
                     <td>{opportunity.score.toFixed(3)}</td>
@@ -103,7 +111,9 @@ export default async function ResearchPage() {
                 researchItems.map((item) => (
                   <tr key={item.id}>
                     <td>{item.publishedAt.toLocaleString()}</td>
-                    <td>{item.symbol}</td>
+                    <td>
+                      <SymbolIdentity symbol={item.symbol} companyName={companyNames[item.symbol]} />
+                    </td>
                     <td>{item.source}</td>
                     <td>
                       <a href={item.sourceUrl} target="_blank" rel="noreferrer">

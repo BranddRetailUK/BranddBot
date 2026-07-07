@@ -48,6 +48,18 @@ export async function getStockAsset(symbol: string, env?: AppEnv): Promise<Stock
   return assets.find((asset) => asset.symbol === normalized);
 }
 
+export async function getStockAssetNameMap(symbols: string[], env?: AppEnv): Promise<Record<string, string>> {
+  const requestedSymbols = new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean));
+  if (requestedSymbols.size === 0) return {};
+
+  const assets = await getStockAssets(env);
+  return Object.fromEntries(
+    assets
+      .filter((asset) => requestedSymbols.has(asset.symbol))
+      .map((asset) => [asset.symbol, asset.name])
+  );
+}
+
 export async function getStockAssets(env = getEnv()): Promise<StockAsset[]> {
   if (cachedAssets && Date.now() - cachedAssets.fetchedAt < ASSET_CACHE_MS) {
     return cachedAssets.assets;

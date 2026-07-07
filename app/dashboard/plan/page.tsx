@@ -1,5 +1,7 @@
 import { ClipboardCheck, ListChecks, Radar, ShieldCheck } from "lucide-react";
 import { PlanControls } from "@/app/dashboard/plan/PlanControls";
+import { SymbolIdentity } from "@/app/dashboard/SymbolIdentity";
+import { getStockAssetNameMap } from "@/lib/market/assets";
 import { getLatestTradePlan } from "@/lib/plan/builder";
 import type { TradePlanItemSummary, TradePlanSuggestedAction } from "@/lib/types/trading";
 
@@ -7,6 +9,9 @@ export const dynamic = "force-dynamic";
 
 export default async function PlanPage() {
   const plan = await getLatestTradePlan().catch(() => undefined);
+  const companyNames: Record<string, string> = plan
+    ? await getStockAssetNameMap(plan.items.map((item) => item.symbol)).catch(() => ({}))
+    : {};
   const itemCount = plan?.items.length ?? 0;
   const tradableCount = plan?.items.filter((item) => item.tradableNow).length ?? 0;
   const rsiEligibleCount = plan?.items.filter((item) => item.eligibleForRsi).length ?? 0;
@@ -66,7 +71,13 @@ export default async function PlanPage() {
                   </td>
                 </tr>
               ) : (
-                plan.items.map((item) => <PlanRow key={item.id ?? `${item.rank}-${item.symbol}`} item={item} />)
+                plan.items.map((item) => (
+                  <PlanRow
+                    key={item.id ?? `${item.rank}-${item.symbol}`}
+                    item={item}
+                    companyName={companyNames[item.symbol]}
+                  />
+                ))
               )}
             </tbody>
           </table>
@@ -76,11 +87,13 @@ export default async function PlanPage() {
   );
 }
 
-function PlanRow({ item }: { item: TradePlanItemSummary }) {
+function PlanRow({ item, companyName }: { item: TradePlanItemSummary; companyName?: string }) {
   return (
     <tr>
       <td>{item.rank}</td>
-      <td>{item.symbol}</td>
+      <td>
+        <SymbolIdentity symbol={item.symbol} companyName={companyName} />
+      </td>
       <td>
         <span className={`planAction ${item.suggestedAction}`}>{formatAction(item.suggestedAction)}</span>
       </td>

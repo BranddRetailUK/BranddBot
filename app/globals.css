@@ -292,6 +292,34 @@ tr:last-child td {
   color: var(--warning);
 }
 
+.symbolIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 150px;
+}
+
+.tickerBadge {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid #c5d7dd;
+  border-radius: 6px;
+  background: #eef7fa;
+  color: var(--accent-strong);
+  padding: 4px 7px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.companyName {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.25;
+  max-width: 220px;
+}
+
 .planAction {
   display: inline-flex;
   border-radius: 999px;
