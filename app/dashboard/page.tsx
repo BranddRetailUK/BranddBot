@@ -120,7 +120,7 @@ export default async function DashboardPage() {
             {activeOpportunityCount} active source-backed opportunity record(s) are available for plans, AI context, and research auto-trading.
           </Term>
           <Term title="Maximum position per symbol">
-            The bot will not intentionally hold more than ${runtime.risk.maxPositionNotionalPerSymbol} of one symbol in
+            The bot will not intentionally hold more than ${tradeSizing.maxPositionNotionalPerSymbol} of one symbol in
             the current paper-risk settings.
           </Term>
         </div>

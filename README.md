@@ -8,7 +8,7 @@ This project is an experiment scaffold, not financial advice. Keep it in paper m
 
 - Next.js dashboard with separate pages for overview, trade plans, paper trades, ranked stocks, and research.
 - Live portfolio value graph and owned-stock value chart on the trades dashboard, backed by Alpaca paper data and browser polling.
-- Dashboard bid range controls for research auto-trade sizing, stored in Postgres runtime settings.
+- Dashboard bid range and max per-stock holding controls for paper bot sizing, stored in Postgres runtime settings.
 - RSI baseline strategy with OpenAI reasoning that can only block, hold, or agree with deterministic RSI signals.
 - Alpaca paper broker integration for account, positions, orders, IEX market data, fill reconciliation, and Alpaca News research.
 - Postgres/Prisma persistence for market snapshots, signals, AI audits, trades, learning notes, research items, and opportunities.
@@ -86,7 +86,7 @@ The default runtime is cost-controlled: the worker runs every 5 minutes, determi
 
 `WATCHLIST` is the only symbol list scanned by the RSI/OpenAI trading loop. `RESEARCH_SYMBOLS` controls the Alpaca News crawler; when it is empty, research falls back to `WATCHLIST` plus focused symbols selected on the Stocks page. `RESEARCH_MAX_SYMBOLS` defaults to `8` and caps the combined research list so an overly broad variable or too many focused symbols cannot make the crawler research everything. If no valid research symbols resolve, the crawler skips the Alpaca News request instead of running an unfiltered all-news search.
 
-The Trades page can override paper bid sizing at runtime with a min/max bid range. These values are stored in Postgres `BotConfig`, so the worker reads them before each enabled loop without needing a redeploy.
+The Trades page can override paper bid sizing at runtime with a min/max bid range and a max holding value per stock. These values are stored in Postgres `BotConfig`, so the worker and dashboard scan buttons read them before paper-trading evaluation without needing a redeploy.
 
 ## Safety Model
 

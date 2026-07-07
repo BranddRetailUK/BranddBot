@@ -7,6 +7,7 @@ import type { TradeSizingSettings } from "@/lib/types/trading";
 export function TradeSizingControls({ initialSettings }: { initialSettings: TradeSizingSettings }) {
   const [minBid, setMinBid] = useState(String(initialSettings.minBidNotional));
   const [maxBid, setMaxBid] = useState(String(initialSettings.maxBidNotional));
+  const [maxHolding, setMaxHolding] = useState(String(initialSettings.maxPositionNotionalPerSymbol));
   const [settings, setSettings] = useState(initialSettings);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | undefined>();
@@ -21,7 +22,8 @@ export function TradeSizingControls({ initialSettings }: { initialSettings: Trad
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           minBidNotional: Number(minBid),
-          maxBidNotional: Number(maxBid)
+          maxBidNotional: Number(maxBid),
+          maxPositionNotionalPerSymbol: Number(maxHolding)
         })
       });
       const payload = (await response.json()) as { settings?: TradeSizingSettings; error?: string };
@@ -34,9 +36,10 @@ export function TradeSizingControls({ initialSettings }: { initialSettings: Trad
       setSettings(payload.settings);
       setMinBid(String(payload.settings.minBidNotional));
       setMaxBid(String(payload.settings.maxBidNotional));
-      setMessage("Bid range saved. The worker reads this before the next paper-trading loop.");
+      setMaxHolding(String(payload.settings.maxPositionNotionalPerSymbol));
+      setMessage("Trade limits saved. The worker reads these before the next paper-trading loop.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Bid range update failed.");
+      setMessage(error instanceof Error ? error.message : "Trade limit update failed.");
     } finally {
       setSaving(false);
     }
@@ -80,14 +83,29 @@ export function TradeSizingControls({ initialSettings }: { initialSettings: Trad
               />
             </div>
           </label>
+          <label className="fieldGroup">
+            <span>Max holding</span>
+            <div className="moneyInput">
+              <span>$</span>
+              <input
+                inputMode="decimal"
+                min="1"
+                onChange={(event) => setMaxHolding(event.target.value)}
+                step="1"
+                type="number"
+                value={maxHolding}
+              />
+            </div>
+          </label>
           <button className="iconButton primary" disabled={saving} onClick={saveSettings} type="button">
             <Save size={16} />
-            {saving ? "Saving" : "Save Bid Range"}
+            {saving ? "Saving" : "Save Limits"}
           </button>
         </div>
         <p className="sectionIntro">
-          Current saved range: {formatUsd(settings.minBidNotional)} to {formatUsd(settings.maxBidNotional)}. Research
-          auto-trading sizes buy orders inside this range based on opportunity strength.
+          Current saved range: {formatUsd(settings.minBidNotional)} to {formatUsd(settings.maxBidNotional)} per order.
+          The bot will not intentionally hold more than {formatUsd(settings.maxPositionNotionalPerSymbol)} of any one
+          stock.
         </p>
         {message ? <div className="statusMessage">{message}</div> : null}
       </div>

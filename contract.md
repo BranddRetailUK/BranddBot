@@ -229,7 +229,7 @@ data_model:
       key: String id
       value: String
       updatedAt: DateTime updatedAt
-      use: Stores runtime settings including bot.enabled, trade.sizing, and research.focusSymbols.
+      use: Stores runtime settings including bot.enabled, trade.sizing bid/holding limits, and research.focusSymbols.
     MarketSnapshot:
       fields: [id, symbol, timeframe, price, rsi, barsJson, createdAt]
       indexes: [[symbol, createdAt]]
@@ -288,7 +288,7 @@ type_contract:
     PortfolioPositionValue: { symbol, qty, marketValue, avgEntryPrice, unrealizedPnl, allocationPercent }
     PortfolioPositionsResult: { generatedAt, positions, totalMarketValue, error? }
     StockAsset: { symbol, name, exchange?, assetClass?, status?, tradable, fractionable }
-    TradeSizingSettings: { minBidNotional, maxBidNotional, updatedAt? }
+    TradeSizingSettings: { minBidNotional, maxBidNotional, maxPositionNotionalPerSymbol, updatedAt? }
     OrderRequest: { symbol, side, notional?, qty?, type?, timeInForce?, clientOrderId? }
     OrderResult: { id, symbol, side, status, notional?, qty?, filledAvgPrice? }
     BrokerOrderSnapshot: OrderResult plus { filledAt?, submittedAt? }
@@ -587,7 +587,7 @@ research_auto_trade_contract:
     - Current-day strategy=research_auto trade count must be below RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS.
     - Each worker/script run submits at most RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN accepted orders.
     - New buy positions are capped by RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS.
-    - Per-symbol exposure is capped by MAX_POSITION_NOTIONAL_PER_SYMBOL.
+    - Per-symbol exposure is capped by trade.sizing maxPositionNotionalPerSymbol when runtime sizing is loaded, otherwise MAX_POSITION_NOTIONAL_PER_SYMBOL.
     - Buy target notional is scaled between trade.sizing minBidNotional and maxBidNotional by opportunity strength.
     - Final buy notional is min(scaled target, MAX_NOTIONAL_PER_ORDER after runtime sizing, remaining symbol capacity, buying power).
     - Buys are blocked when final notional is below trade.sizing minBidNotional.
@@ -738,8 +738,8 @@ api_contract:
       behavior: returns BotConfig-backed TradeSizingSettings with env-derived defaults when unset or BotConfig is temporarily unavailable.
     POST /api/settings/trade-sizing:
       source: app/api/settings/trade-sizing/route.ts
-      body: { minBidNotional, maxBidNotional }
-      behavior: validates $1 <= min <= max <= $100,000, stores BotConfig trade.sizing, and returns settings.
+      body: { minBidNotional, maxBidNotional, maxPositionNotionalPerSymbol }
+      behavior: validates $1 <= minBidNotional <= maxBidNotional <= maxPositionNotionalPerSymbol <= $100,000, stores BotConfig trade.sizing, and returns settings.
     GET /api/focus-symbols:
       source: app/api/focus-symbols/route.ts
       behavior: returns focused symbols from BotConfig research.focusSymbols, or [] when BotConfig is temporarily unavailable.
@@ -759,7 +759,7 @@ api_contract:
       source: app/api/bot/scan/route.ts
       body: { dryRun?: boolean }
       default: dryRun true
-      behavior: runBotScan; response message contains Dry/Paper and accepted decision count; status 500 on error.
+      behavior: runBotScan with BotConfig-backed trade sizing; response message contains Dry/Paper and accepted decision count; status 500 on error.
     GET /api/bot/status:
       source: app/api/bot/status/route.ts
       behavior: returns enabled, runtime public summary including paperTradingEndpoint and researchAutoTrade, and latestAudit.
@@ -824,10 +824,10 @@ ui_contract:
       chart_source: app/dashboard/trades/PortfolioValueChart.tsx
       sizing_controls_source: app/dashboard/trades/TradeSizingControls.tsx
       holdings_chart_source: app/dashboard/trades/OwnedPositionsChart.tsx
-      displays: Trade records including strategy, closed trade count, realized P/L, recent LearningEvent rows, bid range controls, a live portfolio value/P&L graph, and a current holdings value chart below the KPI cards.
+      displays: Trade records including strategy, closed trade count, realized P/L, recent LearningEvent rows, bid range and max holding controls, a live portfolio value/P&L graph, and a current holdings value chart below the KPI cards.
       sizing_behavior:
-        - GET/POST /api/settings/trade-sizing controls paper research auto-trade min/max bid size.
-        - Worker reads settings before each enabled loop.
+        - GET/POST /api/settings/trade-sizing controls paper min/max bid size and max value the bot may intentionally hold of one symbol.
+        - Worker and dashboard scan route read settings before paper trading evaluation.
       chart_behavior:
         - Server page seeds the chart with getPortfolioHistory(refresh=false, rangeHours=24).
         - Client chart polls GET /api/portfolio/history every 15 seconds without requiring page reload.
@@ -943,7 +943,7 @@ safety_invariants:
   - Paper scan can submit only when RSI, AI, and risk gates all accept.
   - Research auto-trading can submit paper orders only when RESEARCH_AUTO_TRADE_ENABLED=true and its paper-only, source-backed, size, position, daily cap, loss, and cooldown gates pass.
   - Research auto-trading must label orders with strategy=research_auto and must not run in live mode.
-  - Runtime trade.sizing can increase paper order size but cannot bypass paper-only mode, buying power, daily cap, cooldown, or symbol/position caps.
+  - Runtime trade.sizing can change paper order size and per-symbol holding caps but cannot bypass paper-only mode, buying power, daily cap, cooldown, or open-position caps.
   - Manual buys from the Stocks page must be explicit user actions, must remain Alpaca paper-only, and must label orders with strategy=manual.
   - Emergency stop must disable bot and cancel open orders when Alpaca is reachable.
   - Suggested AI parameter adjustments are currently audit data only; they are not automatically applied.
@@ -1003,7 +1003,7 @@ test_contract:
     tests/portfolio-snapshots.test.ts:
       covers: portfolio position summary math for long market value, unrealized P/L, open position count, and owned-position value allocation.
     tests/trade-sizing.test.ts:
-      covers: dashboard bid range normalization and runtime application to bot/research auto-trade configs.
+      covers: dashboard bid range and max holding normalization plus runtime application to bot/research auto-trade configs.
     tests/manual-order.test.ts:
       covers: explicit manual paper buy submission through a mock broker and paper-only safety block.
     tests/helpers.ts:

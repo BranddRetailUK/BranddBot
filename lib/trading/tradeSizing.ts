@@ -8,10 +8,12 @@ const MAX_ALLOWED_BID_NOTIONAL = 100_000;
 export function getDefaultTradeSizingSettings(env: AppEnv = getEnv()): TradeSizingSettings {
   const minBidNotional = Math.max(1, env.RESEARCH_AUTO_TRADE_NOTIONAL);
   const maxBidNotional = Math.max(minBidNotional, env.MAX_NOTIONAL_PER_ORDER);
+  const maxPositionNotionalPerSymbol = Math.max(maxBidNotional, env.MAX_POSITION_NOTIONAL_PER_SYMBOL);
 
   return {
     minBidNotional,
-    maxBidNotional
+    maxBidNotional,
+    maxPositionNotionalPerSymbol
   };
 }
 
@@ -59,7 +61,7 @@ export function applyTradeSizingToBotConfig(
     risk: {
       ...config.risk,
       maxNotionalPerOrder: sizing.maxBidNotional,
-      maxPositionNotionalPerSymbol: Math.max(config.risk.maxPositionNotionalPerSymbol, sizing.maxBidNotional)
+      maxPositionNotionalPerSymbol: sizing.maxPositionNotionalPerSymbol
     }
   };
 }
@@ -83,13 +85,19 @@ export function normalizeTradeSizingSettings(
 ): TradeSizingSettings {
   const fallbackMin = toFiniteNumber(fallback.minBidNotional, 1);
   const fallbackMax = toFiniteNumber(fallback.maxBidNotional, fallbackMin);
+  const fallbackMaxPosition = toFiniteNumber(fallback.maxPositionNotionalPerSymbol, fallbackMax);
   const minBidNotional = clampNotional(toFiniteNumber(input.minBidNotional, fallbackMin));
   const requestedMax = clampNotional(toFiniteNumber(input.maxBidNotional, fallbackMax));
   const maxBidNotional = Math.max(minBidNotional, requestedMax);
+  const requestedMaxPosition = clampNotional(
+    toFiniteNumber(input.maxPositionNotionalPerSymbol, fallbackMaxPosition)
+  );
+  const maxPositionNotionalPerSymbol = Math.max(maxBidNotional, requestedMaxPosition);
 
   return {
     minBidNotional,
-    maxBidNotional
+    maxBidNotional,
+    maxPositionNotionalPerSymbol
   };
 }
 

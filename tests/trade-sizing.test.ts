@@ -24,22 +24,39 @@ describe("trade sizing settings", () => {
   it("normalizes bid range and keeps max above min", () => {
     expect(normalizeTradeSizingSettings({ minBidNotional: 50, maxBidNotional: 25 })).toEqual({
       minBidNotional: 50,
-      maxBidNotional: 50
+      maxBidNotional: 50,
+      maxPositionNotionalPerSymbol: 50
+    });
+  });
+
+  it("keeps max holding at or above max bid", () => {
+    expect(
+      normalizeTradeSizingSettings({
+        minBidNotional: 25,
+        maxBidNotional: 100,
+        maxPositionNotionalPerSymbol: 25
+      })
+    ).toEqual({
+      minBidNotional: 25,
+      maxBidNotional: 100,
+      maxPositionNotionalPerSymbol: 100
     });
   });
 
   it("applies dashboard sizing to bot and research auto-trade configs", () => {
     const botConfig = applyTradeSizingToBotConfig(testConfig(), {
       minBidNotional: 25,
-      maxBidNotional: 100
+      maxBidNotional: 100,
+      maxPositionNotionalPerSymbol: 250
     });
     const sizedResearchConfig = applyTradeSizingToResearchAutoTradeConfig(researchConfig, {
       minBidNotional: 25,
-      maxBidNotional: 100
+      maxBidNotional: 100,
+      maxPositionNotionalPerSymbol: 250
     });
 
     expect(botConfig.risk.maxNotionalPerOrder).toBe(100);
-    expect(botConfig.risk.maxPositionNotionalPerSymbol).toBe(100);
+    expect(botConfig.risk.maxPositionNotionalPerSymbol).toBe(250);
     expect(sizedResearchConfig.minNotionalPerOrder).toBe(25);
     expect(sizedResearchConfig.maxNotionalPerOrder).toBe(100);
     expect(sizedResearchConfig.notionalPerOrder).toBe(100);

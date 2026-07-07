@@ -80,6 +80,7 @@ export type StockAsset = {
 export type TradeSizingSettings = {
   minBidNotional: number;
   maxBidNotional: number;
+  maxPositionNotionalPerSymbol: number;
   updatedAt?: string;
 };
 
