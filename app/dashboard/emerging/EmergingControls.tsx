@@ -1,9 +1,13 @@
 "use client";
 
-import { Radar, Save } from "lucide-react";
+import { Radar, Save, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import type { EmergingDiscoveryCandidate, EmergingResearchSettings } from "@/lib/types/trading";
+import type {
+  EmergingDiscoveryCandidate,
+  EmergingResearchSettings,
+  EmergingSettingsRecommendation
+} from "@/lib/types/trading";
 
 export function EmergingControls({ initialSettings }: { initialSettings: EmergingResearchSettings }) {
   const router = useRouter();
@@ -24,11 +28,13 @@ export function EmergingControls({ initialSettings }: { initialSettings: Emergin
     String(initialSettings.maxPositionNotionalPerSymbol)
   );
   const [message, setMessage] = useState("");
+  const [recommendationReasons, setRecommendationReasons] = useState<string[]>([]);
   const [discoveryCandidates, setDiscoveryCandidates] = useState<EmergingDiscoveryCandidate[]>([]);
   const [isPending, startTransition] = useTransition();
 
   function saveSettings() {
     setMessage("");
+    setRecommendationReasons([]);
     startTransition(async () => {
       try {
         const response = await fetch("/api/settings/emerging", {
@@ -52,6 +58,7 @@ export function EmergingControls({ initialSettings }: { initialSettings: Emergin
 
   function runDiscovery() {
     setMessage("");
+    setRecommendationReasons([]);
     setDiscoveryCandidates([]);
     startTransition(async () => {
       try {
@@ -75,6 +82,37 @@ export function EmergingControls({ initialSettings }: { initialSettings: Emergin
         router.refresh();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Emerging discovery failed.");
+      }
+    });
+  }
+
+  function recommendSettings() {
+    setMessage("");
+    setRecommendationReasons([]);
+    setDiscoveryCandidates([]);
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/settings/emerging/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ save: true })
+        });
+        const payload = (await response.json()) as {
+          recommendation?: EmergingSettingsRecommendation;
+          error?: string;
+        };
+        if (!response.ok || !payload.recommendation) {
+          setMessage(payload.error ?? "Emerging recommendation failed.");
+          return;
+        }
+        applySettings(payload.recommendation.settings);
+        setRecommendationReasons(payload.recommendation.reasons);
+        setMessage(
+          `Recommended options saved from ${payload.recommendation.sourceCounts.matchedSignals} matching research signal(s).`
+        );
+        router.refresh();
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Emerging recommendation failed.");
       }
     });
   }
@@ -167,12 +205,23 @@ export function EmergingControls({ initialSettings }: { initialSettings: Emergin
             <Save size={16} />
             {isPending ? "Working" : "Save Options"}
           </button>
+          <button className="iconButton" disabled={isPending} onClick={recommendSettings} type="button">
+            <Sparkles size={16} />
+            Recommend Options
+          </button>
           <button className="iconButton" disabled={isPending || !settings.enabled} onClick={runDiscovery} type="button">
             <Radar size={16} />
             Run Discovery
           </button>
         </div>
         {message ? <div className="statusMessage">{message}</div> : null}
+        {recommendationReasons.length > 0 ? (
+          <ul className="recommendationList">
+            {recommendationReasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        ) : null}
         {discoveryCandidates.length > 0 ? (
           <div className="sourceLinks">
             {discoveryCandidates.slice(0, 6).map((candidate) => (

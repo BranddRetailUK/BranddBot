@@ -291,6 +291,7 @@ type_contract:
     TradeSizingSettings: { minBidNotional, maxBidNotional, maxPositionNotionalPerSymbol, updatedAt? }
     EmergingResearchSettings: { enabled, seedSymbols, maxSymbols, newsLookbackHours, newsLimit, minOpportunityConfidence, minPrice, maxPrice, minAvgDailyVolume, maxMarketCapUsd, maxIpoAgeDays, maxBidNotional, maxPositionNotionalPerSymbol, updatedAt? }
     EmergingDiscoveryCandidate: { symbol, companyName?, source, headline, sourceUrl, score, reasons, publishedAt, tradable, fractionable }
+    EmergingSettingsRecommendation: { settings, reasons, matchedSymbols, sourceCounts: { researchItems, opportunities, matchedSignals } }
     OrderRequest: { symbol, side, notional?, qty?, type?, timeInForce?, clientOrderId? }
     OrderResult: { id, symbol, side, status, notional?, qty?, filledAvgPrice? }
     BrokerOrderSnapshot: OrderResult plus { filledAt?, submittedAt? }
@@ -531,10 +532,11 @@ research_contract:
     Research opportunities are source-backed inputs for AI context, trade plans, and the explicit research auto-trade executor. They cannot bypass paper-only safety, size limits, cooldowns, or live-trading blocks.
 
 emerging_research_contract:
-  sources: [lib/emerging/settings.ts, lib/emerging/discovery.ts]
+  sources: [lib/emerging/settings.ts, lib/emerging/discovery.ts, lib/emerging/recommendations.ts]
   dashboard_route: /dashboard/emerging
   api:
     settings: GET/POST /api/settings/emerging
+    recommendation: POST /api/settings/emerging/recommend
     discovery: POST /api/emerging/discover
   storage:
     - BotConfig key emerging.settings stores runtime settings for the Emerging/IPO lane.
@@ -545,6 +547,10 @@ emerging_research_contract:
     - maxSymbols, newsLookbackHours, newsLimit, and minOpportunityConfidence bound explicit discovery scans.
     - minPrice, maxPrice, minAvgDailyVolume, maxMarketCapUsd, and maxIpoAgeDays are stored for the lane and surfaced as filters; current Alpaca-only discovery cannot enforce market cap, IPO age, or average-volume filters without an added fundamentals/IPO provider.
     - maxBidNotional and maxPositionNotionalPerSymbol describe intended paper limits for this lane; current discovery does not submit orders.
+  recommendation:
+    - Reads stored ResearchItem and active Opportunity rows for IPO/public-debut/startup/emerging-tech terms.
+    - Does not call OpenAI or external news APIs.
+    - Saves conservative enabled settings when requested, including seeded symbols, bounded news lookback/limit/confidence, and paper exposure caps derived from current trade sizing.
   discovery:
     - Uses Alpaca News without a symbol filter only when explicitly triggered from POST /api/emerging/discover.
     - Scans at most newsLimit recent articles in newsLookbackHours for IPO, public-debut, startup, and technology terms.
@@ -783,6 +789,10 @@ api_contract:
       source: app/api/settings/emerging/route.ts
       body: Partial<EmergingResearchSettings>
       behavior: normalizes and stores Emerging/IPO lane settings in BotConfig emerging.settings.
+    POST /api/settings/emerging/recommend:
+      source: app/api/settings/emerging/recommend/route.ts
+      body: { save?: boolean }
+      behavior: ranks stored research/opportunity rows for IPO/emerging-tech terms, returns EmergingSettingsRecommendation, and saves the recommended emerging.settings values when save=true.
     POST /api/emerging/discover:
       source: app/api/emerging/discover/route.ts
       body: { saveSymbols?: boolean }
@@ -892,6 +902,7 @@ ui_contract:
       displays:
         - Emerging/IPO seed symbol count, active signal count, tradable count, and held count.
         - Runtime settings for seed symbols, discovery scan bounds, stored IPO/market-cap/price/volume filters, and intended paper limits.
+        - Recommend Options action backed by POST /api/settings/emerging/recommend to set fields from stored research without OpenAI.
         - Explicit Run Discovery action backed by POST /api/emerging/discover.
         - Candidate table with ticker/company, Alpaca tradability, active opportunity, latest research source, and current paper holding.
     research:

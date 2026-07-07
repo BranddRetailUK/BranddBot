@@ -150,7 +150,13 @@ function scoreArticle(article: NewsArticle): { score: number; reasons: string[] 
 }
 
 function findMatches(text: string, terms: string[]): string[] {
-  return terms.filter((term) => text.includes(term));
+  return terms.filter((term) => termMatches(text, term));
+}
+
+function termMatches(text: string, term: string): boolean {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = /^[a-z0-9]+$/i.test(term) ? new RegExp(`\\b${escaped}\\b`, "i") : new RegExp(escaped, "i");
+  return pattern.test(text);
 }
 
 function buildResult(params: {

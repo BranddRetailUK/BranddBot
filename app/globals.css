@@ -618,6 +618,14 @@ tr:last-child td {
   align-items: start;
 }
 
+.recommendationList {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  display: grid;
+  gap: 4px;
+}
+
 .compactMoneyInput {
   width: 120px;
 }

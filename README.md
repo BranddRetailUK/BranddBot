@@ -89,7 +89,7 @@ The default runtime is cost-controlled: the worker runs every 5 minutes, determi
 
 The Trades page can override paper bid sizing at runtime with a min/max bid range and a max holding value per stock. These values are stored in Postgres `BotConfig`, so the worker and dashboard scan buttons read them before paper-trading evaluation without needing a redeploy.
 
-The Emerging page stores its own `emerging.settings` runtime config in Postgres. Its Run Discovery action performs a bounded Alpaca News scan for IPO/public-debut/startup-tech terms, validates returned symbols against Alpaca tradable fractionable assets, and adds candidates to the Emerging seed list. This lane surfaces candidates for review; it does not place orders.
+The Emerging page stores its own `emerging.settings` runtime config in Postgres. Its Recommend Options action uses stored research/opportunity rows to seed IPO/emerging-tech symbols and apply conservative scan/exposure settings without calling OpenAI. Its Run Discovery action performs a bounded Alpaca News scan for IPO/public-debut/startup-tech terms, validates returned symbols against Alpaca tradable fractionable assets, and adds candidates to the Emerging seed list. This lane surfaces candidates for review; it does not place orders.
 
 ## Safety Model
 

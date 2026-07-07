@@ -114,6 +114,17 @@ export type EmergingDiscoveryCandidate = {
   fractionable: boolean;
 };
 
+export type EmergingSettingsRecommendation = {
+  settings: EmergingResearchSettings;
+  reasons: string[];
+  matchedSymbols: string[];
+  sourceCounts: {
+    researchItems: number;
+    opportunities: number;
+    matchedSignals: number;
+  };
+};
+
 export type OrderRequest = {
   symbol: string;
   side: OrderSide;
