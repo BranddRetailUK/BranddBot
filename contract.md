@@ -867,7 +867,7 @@ ui_contract:
       chart_behavior:
         - Server page seeds the chart with getPortfolioHistory(refresh=false, rangeHours=24).
         - Client chart polls GET /api/portfolio/history every 15 seconds without requiring page reload.
-        - Range buttons show 6H, 24H, and 3D windows.
+        - Range buttons show 1H, 6H, 24H, and 3D windows.
         - Chart displays current portfolio value, P/L in range, unrealized P/L, cash, latest timestamp, and Alpaca refresh errors when present.
       holdings_behavior:
         - Server page seeds the holdings chart with getPortfolioPositions.

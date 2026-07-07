@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { PortfolioHistoryResult, PortfolioSnapshotPoint } from "@/lib/types/trading";
 
 const POLL_MS = 15_000;
+const RANGE_OPTIONS = [1, 6, 24, 72] as const;
 
 export function PortfolioValueChart({ initialHistory }: { initialHistory?: PortfolioHistoryResult }) {
   const [history, setHistory] = useState<PortfolioHistoryResult | undefined>(initialHistory);
@@ -62,7 +63,7 @@ export function PortfolioValueChart({ initialHistory }: { initialHistory?: Portf
           <h2>Live Paper P/L</h2>
         </div>
         <div className="rangeControls" aria-label="Portfolio chart range">
-          {[6, 24, 72].map((hours) => (
+          {RANGE_OPTIONS.map((hours) => (
             <button
               className={rangeHours === hours ? "rangeButton active" : "rangeButton"}
               key={hours}
@@ -99,7 +100,7 @@ export function PortfolioValueChart({ initialHistory }: { initialHistory?: Portf
               <path className="chartArea" d={chart.areaPath} />
               <polyline className="chartLine" points={chart.polyline} />
               {chart.points.map((point) => (
-                <circle className="chartPoint" cx={point.x} cy={point.y} key={point.key} r={point.isLatest ? 4 : 2.5} />
+                <circle className="chartPoint" cx={point.x} cy={point.y} key={point.key} r={point.isLatest ? 2.6 : 1.25} />
               ))}
               <text className="axisLabel" x="58" y="20">
                 {formatUsd(chart.maxValue)}

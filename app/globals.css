@@ -494,7 +494,7 @@ tr:last-child td {
 .chartPoint {
   fill: #fff;
   stroke: var(--accent-strong);
-  stroke-width: 2;
+  stroke-width: 1.4;
 }
 
 .axisLabel {
