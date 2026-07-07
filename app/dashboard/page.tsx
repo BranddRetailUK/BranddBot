@@ -107,8 +107,9 @@ export default async function DashboardPage() {
             {openTradeCount} trade record(s) are currently open or waiting for reconciliation.
           </Term>
           <Term title="Research symbols">
-            The research crawler is currently looking at {runtime.research.symbols.join(", ")}
-            {focusedSymbols.length > 0 ? ` plus focused symbols ${focusedSymbols.join(", ")}.` : "."}
+            Base list {formatSymbolList(runtime.research.symbols)}
+            {focusedSymbols.length > 0 ? ` plus focused ${formatSymbolList(focusedSymbols)}` : ""}; capped at{" "}
+            {runtime.research.maxSymbols} symbol(s) per crawl.
           </Term>
           <Term title="Research auto-trading">
             {runtime.researchAutoTrade.enabled
@@ -154,4 +155,8 @@ function formatReasons(json: string): string {
   } catch {
     return json;
   }
+}
+
+function formatSymbolList(symbols: string[]): string {
+  return symbols.length > 0 ? symbols.join(", ") : "none";
 }

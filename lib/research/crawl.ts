@@ -20,7 +20,11 @@ export async function runResearchCrawl(options?: {
   const baseSymbols = options?.symbols ?? researchConfig.symbols;
   const focusedSymbols =
     options?.focusedSymbols ?? (options?.symbols ? [] : await getFocusedSymbols().catch(() => []));
-  const symbols = uniqueStrings([...baseSymbols, ...focusedSymbols].map((symbol) => symbol.trim().toUpperCase()));
+  const symbols = uniqueStrings(
+    [...baseSymbols, ...focusedSymbols]
+      .map((symbol) => normalizeSymbol(symbol))
+      .filter((symbol): symbol is string => Boolean(symbol))
+  ).slice(0, researchConfig.maxSymbols);
   const lookbackHours = options?.lookbackHours ?? researchConfig.lookbackHours;
   const limit = options?.limit ?? researchConfig.newsLimit;
   const opportunityTtlHours = options?.opportunityTtlHours ?? researchConfig.opportunityTtlHours;
@@ -28,6 +32,20 @@ export async function runResearchCrawl(options?: {
   const client = options?.client ?? new AlpacaNewsClient();
 
   await expireOldOpportunities();
+
+  if (symbols.length === 0) {
+    return {
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      source: "alpaca_news",
+      scannedArticles: 0,
+      storedItems: 0,
+      updatedItems: 0,
+      opportunitiesCreated: 0,
+      opportunitiesUpdated: 0,
+      symbols
+    };
+  }
 
   const articles = await client.getNews({
     symbols,
@@ -184,6 +202,11 @@ function getArticleSymbols(article: NewsArticle, requestedSymbols: string[]): st
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function normalizeSymbol(symbol: string): string | undefined {
+  const normalized = symbol.trim().toUpperCase();
+  return /^[A-Z][A-Z0-9.-]{0,9}$/.test(normalized) ? normalized : undefined;
 }
 
 function parseJsonArray(value: string): string[] {

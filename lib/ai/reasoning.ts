@@ -73,6 +73,36 @@ export class AIReasoningService {
     }
   }
 
+  skipForDeterministicHold(context: TradingContext): AiDecisionResult {
+    const compactContext = this.compactContext(context);
+    const inputJson = JSON.stringify(compactContext);
+    const promptHash = hashPrompt(inputJson);
+    const decision: AiTradingDecision = {
+      decision: "hold",
+      confidence: 1,
+      rationale:
+        "OpenAI was not called because the deterministic RSI signal is hold; the risk gate cannot submit orders from a hold signal.",
+      riskFlags: ["openai_skipped_for_deterministic_hold"],
+      learningUpdate: {
+        summary: "",
+        rewardSignal: 0,
+        observations: [],
+        mistakesToAvoid: []
+      },
+      recommendedParameterAdjustments: {
+        maxNotionalMultiplier: 0
+      }
+    };
+
+    return {
+      ...decision,
+      configured: true,
+      promptHash,
+      inputJson,
+      outputJson: JSON.stringify(decision)
+    };
+  }
+
   createRequest(compactContext: unknown): unknown {
     return {
       model: this.env.OPENAI_MODEL,

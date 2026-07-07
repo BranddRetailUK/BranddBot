@@ -43,3 +43,4 @@ railway config apply
 - Use `replicas` for scaling; advanced placement can still specify region names.
 - Use `group("Name", [resources])` to keep large projects organized on the Railway canvas.
 - Secrets imported from Railway are rendered as `preserve()` so existing values are retained without writing secret values to source. Use `railway config pull --omit-preserved-variables` for a smaller import.
+- Cost-control variables are declared in `.railway/railway.ts`: the worker poll interval is 300 seconds, research is capped to 8 symbols, and scheduled research/plan jobs run every 2 hours during the configured weekday market window.

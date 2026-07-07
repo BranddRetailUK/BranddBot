@@ -142,6 +142,7 @@ export type BotRuntimeConfig = {
   timeframe: string;
   oversoldThreshold: number;
   overboughtThreshold: number;
+  openAiReviewHoldSignals: boolean;
   tradingMode: TradingMode;
   liveTradingEnabled: boolean;
   paperTradingEndpoint: boolean;

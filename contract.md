@@ -28,17 +28,17 @@ package:
     build: "prisma generate && next build"
     lint: "eslint ."
     test: "vitest run"
-    test_watch: "vitest"
-    db_generate: "prisma generate"
-    db_push: "node scripts/db-push.mjs"
-    db_prisma_push: "prisma db push"
-    bot_scan: "node --import tsx scripts/run-scan.ts"
-    bot_worker: "node --import tsx scripts/worker.ts"
-    bot_reconcile: "node --import tsx scripts/reconcile-trades.ts"
-    research_crawl: "node --import tsx scripts/research-crawl.ts"
-    research_auto_trade: "node --import tsx scripts/research-auto-trade.ts"
-    plan_generate: "node --import tsx scripts/generate-plan.ts"
-    health_alpaca: "node --import tsx scripts/alpaca-health.ts"
+    "test:watch": "vitest"
+    "db:generate": "prisma generate"
+    "db:push": "node scripts/db-push.mjs"
+    "db:prisma-push": "prisma db push"
+    "bot:scan": "node --import tsx scripts/run-scan.ts"
+    "bot:worker": "node --import tsx scripts/worker.ts"
+    "bot:reconcile": "node --import tsx scripts/reconcile-trades.ts"
+    "research:crawl": "node --import tsx scripts/research-crawl.ts"
+    "research:auto-trade": "node --import tsx scripts/research-auto-trade.ts"
+    "plan:generate": "node --import tsx scripts/generate-plan.ts"
+    "health:alpaca": "node --import tsx scripts/alpaca-health.ts"
   deps:
     next: "^16.2.10"
     react: "^19.2.7"
@@ -83,6 +83,10 @@ env_contract:
     OPENAI_STORE_RESPONSES:
       type: boolean_string
       default: false
+    OPENAI_REVIEW_HOLD_SIGNALS:
+      type: boolean_string
+      default: false
+      behavior: When false, runBotScan skips OpenAI calls for deterministic RSI hold signals and records a local hold audit.
     APCA_API_KEY_ID:
       type: string
       default: ""
@@ -145,23 +149,28 @@ env_contract:
       runtime_min: 1
     BOT_POLL_INTERVAL_SECONDS:
       type: number_string
-      default: 60
-      runtime_min: 30
+      default: 300
+      runtime_min: 60
     RESEARCH_SYMBOLS:
       type: csv_symbols
       default: ""
       behavior: Empty uses WATCHLIST as fallback research symbols.
+    RESEARCH_MAX_SYMBOLS:
+      type: number_string
+      default: 8
+      runtime_min: 1
+      behavior: Caps the resolved RESEARCH_SYMBOLS/WATCHLIST/focused-symbol research universe.
     RESEARCH_LOOKBACK_HOURS:
       type: number_string
-      default: 24
+      default: 6
       runtime_min: 1
     RESEARCH_NEWS_LIMIT:
       type: number_string
-      default: 50
+      default: 20
       runtime_clamp: [1, 50]
     RESEARCH_OPPORTUNITY_TTL_HOURS:
       type: number_string
-      default: 72
+      default: 24
       runtime_min: 1
     RESEARCH_MIN_CONFIDENCE:
       type: number_string
@@ -190,15 +199,15 @@ env_contract:
       runtime_min: 1
     RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS:
       type: number_string
-      default: 25
+      default: 10
       runtime_min: 1
     RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS:
       type: number_string
-      default: 100
+      default: 20
       runtime_min: 1
     RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES:
       type: number_string
-      default: 60
+      default: 240
       runtime_min: 0
     DATABASE_URL:
       type: string
@@ -286,7 +295,7 @@ type_contract:
     TradeFillActivity: { id, orderId?, symbol, side, qty, price, transactionTime }
     RsiSignal: { symbol, action: buy_or_sell_or_hold, rsi?, previousRsi?, confidence, reason, recommendedNotional? }
     RiskLimits: { maxNotionalPerOrder, maxPositionNotionalPerSymbol, maxDailyLossUsd, maxOpenPositions, minAiConfidence }
-    BotRuntimeConfig: { watchlist, rsiPeriod, timeframe, oversoldThreshold, overboughtThreshold, tradingMode, liveTradingEnabled, paperTradingEndpoint, pollIntervalSeconds, risk }
+    BotRuntimeConfig: { watchlist, rsiPeriod, timeframe, oversoldThreshold, overboughtThreshold, openAiReviewHoldSignals, tradingMode, liveTradingEnabled, paperTradingEndpoint, pollIntervalSeconds, risk }
     ResearchAutoTradeConfig: { enabled, minConfidence, minScore, notionalPerOrder, minNotionalPerOrder, maxNotionalPerOrder, maxItemsPerRun, maxOpenPositions, maxDailyOrders, symbolCooldownMinutes }
     ResearchBrief: { symbol, direction, thesis, catalyst, confidence, score, riskFlags, expiresAt }
     TradingContext: { symbol, generatedAt, currentPrice, barSummary, rsi, deterministicSignal, position?, account, openPositionsCount, recentTrades, realizedPnlToday, riskLimits, priorLessons, researchBriefs }
@@ -375,6 +384,9 @@ ai_contract:
     configured: false
     riskFlags: ["ai_unavailable"]
     maxNotionalMultiplier: 0
+  deterministic_hold_skip:
+    condition: deterministic RSI signal is hold and OPENAI_REVIEW_HOLD_SIGNALS is false.
+    behavior: OpenAI is not called; a local hold AiDecisionResult is recorded with riskFlags ["openai_skipped_for_deterministic_hold"] and empty learning summary.
   invariant: AI does not submit orders and cannot force a trade. Risk gate requires AI decision to exactly match deterministic buy/sell.
 
 broker_contract:
@@ -495,11 +507,12 @@ research_contract:
   crawl_function: runResearchCrawl
   script: npm run research:crawl
   query:
-    symbols: RESEARCH_SYMBOLS or WATCHLIST fallback, plus BotConfig research.focusSymbols when run without explicit --symbols
+    symbols: normalized RESEARCH_SYMBOLS or WATCHLIST fallback, plus BotConfig research.focusSymbols when run without explicit --symbols, capped by RESEARCH_MAX_SYMBOLS
     start: now minus RESEARCH_LOOKBACK_HOURS
     limit: RESEARCH_NEWS_LIMIT clamped 1..50
     include_content: false
     exclude_contentless: false
+    empty_symbol_behavior: skips the Alpaca News request and returns zero scanned articles rather than making an unfiltered news query.
   storage:
     - Upsert ResearchItem by externalId "{article.id}:{symbol}".
     - Store source URL, headline, source, published timestamp, symbols JSON, content hash, sentiment, catalyst, risk flags, confidence, expiry.
@@ -554,7 +567,7 @@ research_auto_trade_contract:
   script: npm run research:auto-trade
   default_state:
     enabled: false unless RESEARCH_AUTO_TRADE_ENABLED is true
-    worker_cadence: controlled by BOT_POLL_INTERVAL_SECONDS, default 60 seconds
+    worker_cadence: controlled by BOT_POLL_INTERVAL_SECONDS, default 300 seconds
   inputs:
     - Active Opportunity rows where status=active and expiresAt > now.
     - Current paper account and positions from AlpacaBroker.
@@ -672,7 +685,7 @@ scan_contract:
       - record MarketSnapshot
       - record Signal
       - build TradingContext
-      - aiDecision = AIReasoningService.reason(context)
+      - aiDecision = AIReasoningService.skipForDeterministicHold(context) when signal.action=hold and OPENAI_REVIEW_HOLD_SIGNALS=false; otherwise AIReasoningService.reason(context)
       - riskGate = evaluateRiskGate(...)
       - if riskGate.accepted and riskGate.order and not dryRun: broker.submitOrder
       - if order: recordTrade
@@ -790,7 +803,7 @@ ui_contract:
         - model, watchlist, bid range, research auto-trade status
         - controls
         - latest AI decision
-        - bot state for open paper trades, research symbols, research auto-trading, active opportunities, and max position size
+        - bot state for open paper trades, base/focused research symbols with research cap, research auto-trading, active opportunities, and max position size
     plan:
       source: app/dashboard/plan/page.tsx
       route: /dashboard/plan
@@ -898,12 +911,12 @@ railway_runtime_contract:
     research_cron:
       start_command: npm run research:crawl
       build_command: npm run build
-      cron_schedule_utc: "*/30 12-21 * * 1-5"
+      cron_schedule_utc: "15 12-21/2 * * 1-5"
       purpose: Scheduled source-backed research ingestion; should exit when complete.
     plan_cron:
       start_command: npm run plan:generate
       build_command: npm run build
-      cron_schedule_utc: "5,35 12-21 * * 1-5"
+      cron_schedule_utc: "25 12-21/2 * * 1-5"
       purpose: Scheduled advisory plan generation shortly after research ingestion; should exit when complete.
     reconcile_cron_optional:
       start_command: npm run bot:reconcile
@@ -912,7 +925,7 @@ railway_runtime_contract:
       purpose: Scheduled reconciliation when not relying only on worker.
   database: Railway PostgreSQL via DATABASE_URL.
   database_volume: branddbot-postgres-volume must remain represented in .railway/railway.ts to avoid destructive volume deletion plans.
-  service_variables: Existing runtime variables are preserved in .railway/railway.ts with preserve(); OpenAI and Alpaca secrets must remain Railway variables or be set in Railway without committing values. BranddBot Plan Cron preserves its own runtime variables without committing values.
+  service_variables: Secrets are preserved in .railway/railway.ts with preserve(); cost-control variables pin OPENAI_REVIEW_HOLD_SIGNALS=false, BOT_POLL_INTERVAL_SECONDS=300, RESEARCH_MAX_SYMBOLS=8, RESEARCH_LOOKBACK_HOURS=6, RESEARCH_NEWS_LIMIT=20, RESEARCH_OPPORTUNITY_TTL_HOURS=24, RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN=1, RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS=10, RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS=20, and RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES=240.
   build_command: npm run build
   deploy_source: GitHub auto-deploy after push to main.
 
@@ -921,6 +934,7 @@ safety_invariants:
   - Current scaffold must remain Alpaca paper-only.
   - `TRADING_MODE=live`, `LIVE_TRADING_ENABLED=true`, or a non-paper Alpaca endpoint must not submit orders unless the risk model is explicitly redesigned.
   - OpenAI cannot create a buy/sell contrary to deterministic RSI.
+  - OpenAI is skipped for deterministic RSI hold signals unless OPENAI_REVIEW_HOLD_SIGNALS=true.
   - Risk gate must require exact AI alignment with deterministic buy/sell.
   - Trade plans cannot create buy/sell orders and cannot bypass deterministic RSI, OpenAI review, or the RSI risk gate.
   - Deterministic hold always prevents RSI-scan order creation.

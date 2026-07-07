@@ -83,7 +83,10 @@ export async function runBotScan(options?: {
       researchBriefs
     };
 
-    const aiDecision = await aiService.reason(context);
+    const aiDecision =
+      signal.action === "hold" && !config.openAiReviewHoldSignals
+        ? aiService.skipForDeterministicHold(context)
+        : await aiService.reason(context);
     const riskGate = evaluateRiskGate({ signal, aiDecision, context, config, dryRun });
     const order =
       riskGate.accepted && riskGate.order && !dryRun ? await broker.submitOrder(riskGate.order) : undefined;

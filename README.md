@@ -73,21 +73,25 @@ Use the same repository for each service, with different start commands:
 
 The Railway project shape is defined in `.railway/railway.ts`. Run `railway config plan` before changing it, and apply only after confirming the plan has no unexpected deletes.
 
-For high-frequency paper learning, the worker can run every 60 seconds and call the research auto-trade executor before the RSI scan. Useful non-secret runtime variables:
+The default runtime is cost-controlled: the worker runs every 5 minutes, deterministic RSI `hold` signals do not call OpenAI, and research is capped to a small symbol set. Useful non-secret runtime variables:
 
 - `RESEARCH_AUTO_TRADE_ENABLED=true`
 - `RESEARCH_AUTO_TRADE_NOTIONAL=1`
 - `RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN=1`
-- `RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS=25`
-- `RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS=100`
-- `RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES=60`
-- `BOT_POLL_INTERVAL_SECONDS=60`
+- `RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS=10`
+- `RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS=20`
+- `RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES=240`
+- `BOT_POLL_INTERVAL_SECONDS=300`
+- `OPENAI_REVIEW_HOLD_SIGNALS=false`
+
+`WATCHLIST` is the only symbol list scanned by the RSI/OpenAI trading loop. `RESEARCH_SYMBOLS` controls the Alpaca News crawler; when it is empty, research falls back to `WATCHLIST` plus focused symbols selected on the Stocks page. `RESEARCH_MAX_SYMBOLS` defaults to `8` and caps the combined research list so an overly broad variable or too many focused symbols cannot make the crawler research everything. If no valid research symbols resolve, the crawler skips the Alpaca News request instead of running an unfiltered all-news search.
 
 The Trades page can override paper bid sizing at runtime with a min/max bid range. These values are stored in Postgres `BotConfig`, so the worker reads them before each enabled loop without needing a redeploy.
 
 ## Safety Model
 
 - OpenAI cannot override deterministic RSI strategy output.
+- OpenAI is skipped for deterministic RSI `hold` signals by default; set `OPENAI_REVIEW_HOLD_SIGNALS=true` only if you intentionally want AI audits for non-actionable holds.
 - OpenAI cannot bypass max notional, max symbol exposure, max daily loss, watchlist, or paper-only mode.
 - Broker order paths require `APCA_API_BASE_URL` to be an Alpaca paper endpoint.
 - Missing OpenAI credentials block AI-gated execution.

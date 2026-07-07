@@ -5,7 +5,7 @@ import { createNoopScanPersistence } from "@/lib/bot/persistence";
 import { evaluateRiskGate } from "@/lib/bot/risk";
 import { runBotScan } from "@/lib/bot/scan";
 import { testConfig, testEnv, oversoldBars } from "@/tests/helpers";
-import type { AiDecisionResult, RsiSignal, TradingContext } from "@/lib/types/trading";
+import type { AiDecisionResult, MarketBar, RsiSignal, TradingContext } from "@/lib/types/trading";
 
 describe("bot flow", () => {
   it("runs scan with mock broker and submits a paper order when all gates agree", async () => {
@@ -49,6 +49,38 @@ describe("bot flow", () => {
     expect(result.symbols[0]?.riskGate.accepted).toBe(true);
     expect(broker.orders).toHaveLength(1);
     expect(broker.orders[0]?.symbol).toBe("AAPL");
+  });
+
+  it("skips OpenAI reasoning when deterministic RSI is hold", async () => {
+    const broker = new MockBroker();
+    broker.bars.AAPL = neutralBars();
+    let openAiCalls = 0;
+
+    const aiService = new AIReasoningService({
+      env: testEnv(),
+      responsesCreate: async () => {
+        openAiCalls += 1;
+        throw new Error("OpenAI should not be called for deterministic hold signals.");
+      }
+    });
+
+    const result = await runBotScan({
+      dryRun: false,
+      broker,
+      aiService,
+      persistence: createNoopScanPersistence(),
+      config: {
+        ...testConfig(),
+        oversoldThreshold: 0,
+        overboughtThreshold: 100
+      }
+    });
+
+    expect(openAiCalls).toBe(0);
+    expect(result.symbols[0]?.signal.action).toBe("hold");
+    expect(result.symbols[0]?.aiDecision.riskFlags).toContain("openai_skipped_for_deterministic_hold");
+    expect(result.symbols[0]?.riskGate.accepted).toBe(false);
+    expect(broker.orders).toHaveLength(0);
   });
 
   it("blocks live mode even when AI agrees", () => {
@@ -128,4 +160,16 @@ function baseContext(signal: RsiSignal): TradingContext {
     priorLessons: [],
     researchBriefs: []
   };
+}
+
+function neutralBars(): MarketBar[] {
+  const closes = [100, 101, 100, 101, 100, 101, 100, 101, 100, 101, 100, 101];
+  return closes.map((close, index) => ({
+    timestamp: new Date(Date.UTC(2026, 0, 1, 14, index)).toISOString(),
+    open: close,
+    high: close + 1,
+    low: close - 1,
+    close,
+    volume: 1000 + index
+  }));
 }

@@ -10,6 +10,7 @@ function preservedRuntimeEnv() {
     OPENAI_REASONING_EFFORT: preserve(),
     OPENAI_TEXT_VERBOSITY: preserve(),
     OPENAI_STORE_RESPONSES: preserve(),
+    OPENAI_REVIEW_HOLD_SIGNALS: "false",
     APCA_API_KEY_ID: preserve(),
     APCA_API_SECRET_KEY: preserve(),
     APCA_API_BASE_URL: preserve(),
@@ -26,7 +27,21 @@ function preservedRuntimeEnv() {
     MAX_POSITION_NOTIONAL_PER_SYMBOL: preserve(),
     MAX_DAILY_LOSS_USD: preserve(),
     MAX_OPEN_POSITIONS: preserve(),
-    BOT_POLL_INTERVAL_SECONDS: preserve()
+    BOT_POLL_INTERVAL_SECONDS: "300",
+    RESEARCH_SYMBOLS: preserve(),
+    RESEARCH_MAX_SYMBOLS: "8",
+    RESEARCH_LOOKBACK_HOURS: "6",
+    RESEARCH_NEWS_LIMIT: "20",
+    RESEARCH_OPPORTUNITY_TTL_HOURS: "24",
+    RESEARCH_MIN_CONFIDENCE: preserve(),
+    RESEARCH_AUTO_TRADE_ENABLED: preserve(),
+    RESEARCH_AUTO_TRADE_MIN_CONFIDENCE: preserve(),
+    RESEARCH_AUTO_TRADE_MIN_SCORE: preserve(),
+    RESEARCH_AUTO_TRADE_NOTIONAL: preserve(),
+    RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN: "1",
+    RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS: "10",
+    RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS: "20",
+    RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES: "240"
   };
 }
 
@@ -64,7 +79,7 @@ export default defineRailway(() => {
     start: "npm run research:crawl",
     replicas: 1,
     deploy: {
-      cronSchedule: "*/30 12-21 * * 1-5",
+      cronSchedule: "15 12-21/2 * * 1-5",
       restartPolicyType: "NEVER"
     },
     networking: { privateNetworkEndpoint: "branddbot-research-cron" },
@@ -77,7 +92,7 @@ export default defineRailway(() => {
     start: "npm run plan:generate",
     replicas: 1,
     deploy: {
-      cronSchedule: "5,35 12-21 * * 1-5",
+      cronSchedule: "25 12-21/2 * * 1-5",
       restartPolicyType: "NEVER"
     },
     networking: { privateNetworkEndpoint: "branddbot-plan-cron" },

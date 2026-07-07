@@ -29,6 +29,7 @@ const envSchema = z.object({
     .default("medium"),
   OPENAI_TEXT_VERBOSITY: z.enum(["low", "medium", "high"]).optional().default("low"),
   OPENAI_STORE_RESPONSES: booleanFromEnv(false),
+  OPENAI_REVIEW_HOLD_SIGNALS: booleanFromEnv(false),
   APCA_API_KEY_ID: z.string().optional().default(""),
   APCA_API_SECRET_KEY: z.string().optional().default(""),
   APCA_API_BASE_URL: z.string().url().optional().default("https://paper-api.alpaca.markets"),
@@ -45,20 +46,21 @@ const envSchema = z.object({
   MAX_POSITION_NOTIONAL_PER_SYMBOL: numberFromEnv(25),
   MAX_DAILY_LOSS_USD: numberFromEnv(5),
   MAX_OPEN_POSITIONS: numberFromEnv(3),
-  BOT_POLL_INTERVAL_SECONDS: numberFromEnv(60),
+  BOT_POLL_INTERVAL_SECONDS: numberFromEnv(300),
   RESEARCH_SYMBOLS: z.string().optional().default(""),
-  RESEARCH_LOOKBACK_HOURS: numberFromEnv(24),
-  RESEARCH_NEWS_LIMIT: numberFromEnv(50),
-  RESEARCH_OPPORTUNITY_TTL_HOURS: numberFromEnv(72),
+  RESEARCH_MAX_SYMBOLS: numberFromEnv(8),
+  RESEARCH_LOOKBACK_HOURS: numberFromEnv(6),
+  RESEARCH_NEWS_LIMIT: numberFromEnv(20),
+  RESEARCH_OPPORTUNITY_TTL_HOURS: numberFromEnv(24),
   RESEARCH_MIN_CONFIDENCE: numberFromEnv(0.35),
   RESEARCH_AUTO_TRADE_ENABLED: booleanFromEnv(false),
   RESEARCH_AUTO_TRADE_MIN_CONFIDENCE: numberFromEnv(0.55),
   RESEARCH_AUTO_TRADE_MIN_SCORE: numberFromEnv(0.45),
   RESEARCH_AUTO_TRADE_NOTIONAL: numberFromEnv(1),
   RESEARCH_AUTO_TRADE_MAX_ITEMS_PER_RUN: numberFromEnv(1),
-  RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS: numberFromEnv(25),
-  RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS: numberFromEnv(100),
-  RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES: numberFromEnv(60)
+  RESEARCH_AUTO_TRADE_MAX_OPEN_POSITIONS: numberFromEnv(10),
+  RESEARCH_AUTO_TRADE_MAX_DAILY_ORDERS: numberFromEnv(20),
+  RESEARCH_AUTO_TRADE_SYMBOL_COOLDOWN_MINUTES: numberFromEnv(240)
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -76,9 +78,7 @@ export function isAlpacaConfigured(env = getEnv()): boolean {
 }
 
 export function getBotRuntimeConfig(env = getEnv()): BotRuntimeConfig {
-  const watchlist = env.WATCHLIST.split(",")
-    .map((symbol) => symbol.trim().toUpperCase())
-    .filter(Boolean);
+  const watchlist = normalizeSymbols(env.WATCHLIST.split(","));
 
   return {
     watchlist,
@@ -86,10 +86,11 @@ export function getBotRuntimeConfig(env = getEnv()): BotRuntimeConfig {
     timeframe: env.RSI_TIMEFRAME,
     oversoldThreshold: env.RSI_OVERSOLD,
     overboughtThreshold: env.RSI_OVERBOUGHT,
+    openAiReviewHoldSignals: env.OPENAI_REVIEW_HOLD_SIGNALS,
     tradingMode: env.TRADING_MODE as TradingMode,
     liveTradingEnabled: env.LIVE_TRADING_ENABLED,
     paperTradingEndpoint: env.APCA_API_BASE_URL.includes("paper"),
-    pollIntervalSeconds: Math.max(30, env.BOT_POLL_INTERVAL_SECONDS),
+    pollIntervalSeconds: Math.max(60, env.BOT_POLL_INTERVAL_SECONDS),
     risk: {
       maxNotionalPerOrder: Math.max(1, env.MAX_NOTIONAL_PER_ORDER),
       maxPositionNotionalPerSymbol: Math.max(1, env.MAX_POSITION_NOTIONAL_PER_SYMBOL),
@@ -112,6 +113,7 @@ export function getPublicRuntimeSummary() {
     openAiModel: env.OPENAI_MODEL,
     openAiReasoningEffort: env.OPENAI_REASONING_EFFORT,
     openAiStoreResponses: env.OPENAI_STORE_RESPONSES,
+    openAiReviewHoldSignals: env.OPENAI_REVIEW_HOLD_SIGNALS,
     tradingMode: config.tradingMode,
     liveTradingEnabled: config.liveTradingEnabled,
     paperTradingEndpoint: config.paperTradingEndpoint,
@@ -125,6 +127,7 @@ export function getPublicRuntimeSummary() {
     risk: config.risk,
     research: {
       symbols: researchSymbols,
+      maxSymbols: getResearchMaxSymbols(env),
       lookbackHours: Math.max(1, env.RESEARCH_LOOKBACK_HOURS),
       newsLimit: Math.min(50, Math.max(1, Math.floor(env.RESEARCH_NEWS_LIMIT))),
       opportunityTtlHours: Math.max(1, env.RESEARCH_OPPORTUNITY_TTL_HOURS),
@@ -137,6 +140,7 @@ export function getPublicRuntimeSummary() {
 export function getResearchRuntimeConfig(env = getEnv(), fallbackSymbols?: string[]) {
   return {
     symbols: getResearchSymbols(env, fallbackSymbols),
+    maxSymbols: getResearchMaxSymbols(env),
     lookbackHours: Math.max(1, env.RESEARCH_LOOKBACK_HOURS),
     newsLimit: Math.min(50, Math.max(1, Math.floor(env.RESEARCH_NEWS_LIMIT))),
     opportunityTtlHours: Math.max(1, env.RESEARCH_OPPORTUNITY_TTL_HOURS),
@@ -160,13 +164,26 @@ export function getResearchAutoTradeRuntimeConfig(env = getEnv()): ResearchAutoT
 }
 
 function getResearchSymbols(env: AppEnv, fallbackSymbols?: string[]): string[] {
-  const symbols = env.RESEARCH_SYMBOLS.split(",")
-    .map((symbol) => symbol.trim().toUpperCase())
-    .filter(Boolean);
+  const configuredSymbols = normalizeSymbols(env.RESEARCH_SYMBOLS.split(","));
+  const fallback = fallbackSymbols ? normalizeSymbols(fallbackSymbols) : getBotRuntimeConfig(env).watchlist;
+  const symbols = configuredSymbols.length > 0 ? configuredSymbols : fallback;
 
-  return symbols.length > 0 ? symbols : fallbackSymbols ?? getBotRuntimeConfig(env).watchlist;
+  return symbols.slice(0, getResearchMaxSymbols(env));
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function getResearchMaxSymbols(env: AppEnv): number {
+  return Math.max(1, Math.floor(env.RESEARCH_MAX_SYMBOLS));
+}
+
+function normalizeSymbols(symbols: string[]): string[] {
+  return [...new Set(symbols.map(normalizeSymbol).filter((symbol): symbol is string => Boolean(symbol)))];
+}
+
+function normalizeSymbol(symbol: string): string | undefined {
+  const normalized = symbol.trim().toUpperCase();
+  return /^[A-Z][A-Z0-9.-]{0,9}$/.test(normalized) ? normalized : undefined;
 }
