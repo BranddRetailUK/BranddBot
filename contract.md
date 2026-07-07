@@ -229,7 +229,7 @@ data_model:
       key: String id
       value: String
       updatedAt: DateTime updatedAt
-      use: Stores runtime settings including bot.enabled, trade.sizing bid/holding limits, and research.focusSymbols.
+      use: Stores runtime settings including bot.enabled, trade.sizing bid/holding limits, research.focusSymbols, and emerging.settings.
     MarketSnapshot:
       fields: [id, symbol, timeframe, price, rsi, barsJson, createdAt]
       indexes: [[symbol, createdAt]]
@@ -289,6 +289,8 @@ type_contract:
     PortfolioPositionsResult: { generatedAt, positions, totalMarketValue, error? }
     StockAsset: { symbol, name, exchange?, assetClass?, status?, tradable, fractionable }
     TradeSizingSettings: { minBidNotional, maxBidNotional, maxPositionNotionalPerSymbol, updatedAt? }
+    EmergingResearchSettings: { enabled, seedSymbols, maxSymbols, newsLookbackHours, newsLimit, minOpportunityConfidence, minPrice, maxPrice, minAvgDailyVolume, maxMarketCapUsd, maxIpoAgeDays, maxBidNotional, maxPositionNotionalPerSymbol, updatedAt? }
+    EmergingDiscoveryCandidate: { symbol, companyName?, source, headline, sourceUrl, score, reasons, publishedAt, tradable, fractionable }
     OrderRequest: { symbol, side, notional?, qty?, type?, timeInForce?, clientOrderId? }
     OrderResult: { id, symbol, side, status, notional?, qty?, filledAvgPrice? }
     BrokerOrderSnapshot: OrderResult plus { filledAt?, submittedAt? }
@@ -528,6 +530,29 @@ research_contract:
   invariant:
     Research opportunities are source-backed inputs for AI context, trade plans, and the explicit research auto-trade executor. They cannot bypass paper-only safety, size limits, cooldowns, or live-trading blocks.
 
+emerging_research_contract:
+  sources: [lib/emerging/settings.ts, lib/emerging/discovery.ts]
+  dashboard_route: /dashboard/emerging
+  api:
+    settings: GET/POST /api/settings/emerging
+    discovery: POST /api/emerging/discover
+  storage:
+    - BotConfig key emerging.settings stores runtime settings for the Emerging/IPO lane.
+    - No new Prisma models; discovered symbols are merged into emerging.settings.seedSymbols when discovery saveSymbols=true.
+  settings:
+    - enabled controls whether discovery runs.
+    - seedSymbols is the manually/discovery-maintained candidate universe.
+    - maxSymbols, newsLookbackHours, newsLimit, and minOpportunityConfidence bound explicit discovery scans.
+    - minPrice, maxPrice, minAvgDailyVolume, maxMarketCapUsd, and maxIpoAgeDays are stored for the lane and surfaced as filters; current Alpaca-only discovery cannot enforce market cap, IPO age, or average-volume filters without an added fundamentals/IPO provider.
+    - maxBidNotional and maxPositionNotionalPerSymbol describe intended paper limits for this lane; current discovery does not submit orders.
+  discovery:
+    - Uses Alpaca News without a symbol filter only when explicitly triggered from POST /api/emerging/discover.
+    - Scans at most newsLimit recent articles in newsLookbackHours for IPO, public-debut, startup, and technology terms.
+    - Validates symbols against Alpaca active US equity assets and keeps only tradable fractionable assets when saving candidates.
+    - Returns EmergingDiscoveryCandidate rows with source URL, headline, score, reasons, and Alpaca tradability flags.
+  invariant:
+    Emerging/IPO discovery is a separate research lane and does not bypass paper-only safety, RSI, OpenAI review, research auto-trade gates, or manual order validation.
+
 trade_plan_contract:
   source: lib/plan/builder.ts
   function: buildTradePlan
@@ -751,6 +776,17 @@ api_contract:
       source: app/api/stocks/search/route.ts
       query: { q, limit? }
       behavior: searches Alpaca active US equity assets by ticker or company name and returns StockAsset rows.
+    GET /api/settings/emerging:
+      source: app/api/settings/emerging/route.ts
+      behavior: returns BotConfig-backed EmergingResearchSettings with defaults when unset.
+    POST /api/settings/emerging:
+      source: app/api/settings/emerging/route.ts
+      body: Partial<EmergingResearchSettings>
+      behavior: normalizes and stores Emerging/IPO lane settings in BotConfig emerging.settings.
+    POST /api/emerging/discover:
+      source: app/api/emerging/discover/route.ts
+      body: { saveSymbols?: boolean }
+      behavior: runs explicit Alpaca News emerging/IPO discovery and optionally merges validated candidate symbols into emerging.settings.seedSymbols.
     POST /api/orders/manual-buy:
       source: app/api/orders/manual-buy/route.ts
       body: { symbol, notional }
@@ -786,7 +822,7 @@ ui_contract:
     layout:
       source: app/dashboard/layout.tsx
       nav_source: app/dashboard/DashboardNav.tsx
-      top_nav_routes: [/dashboard, /dashboard/plan, /dashboard/trades, /dashboard/stocks, /dashboard/research]
+      top_nav_routes: [/dashboard, /dashboard/plan, /dashboard/trades, /dashboard/stocks, /dashboard/emerging, /dashboard/research]
     overview:
       source: app/dashboard/page.tsx
       route: /dashboard
@@ -848,6 +884,16 @@ ui_contract:
         - Stock search by ticker or company name backed by /api/stocks/search.
         - Manual paper buy controls backed by /api/orders/manual-buy.
         - Catalyst, thesis, risk notes, source links, confidence, suggested action, and current holding value.
+    emerging:
+      source: app/dashboard/emerging/page.tsx
+      route: /dashboard/emerging
+      dynamic: force-dynamic
+      controls_source: app/dashboard/emerging/EmergingControls.tsx
+      displays:
+        - Emerging/IPO seed symbol count, active signal count, tradable count, and held count.
+        - Runtime settings for seed symbols, discovery scan bounds, stored IPO/market-cap/price/volume filters, and intended paper limits.
+        - Explicit Run Discovery action backed by POST /api/emerging/discover.
+        - Candidate table with ticker/company, Alpaca tradability, active opportunity, latest research source, and current paper holding.
     research:
       source: app/dashboard/research/page.tsx
       route: /dashboard/research
@@ -960,6 +1006,7 @@ training_learning_current:
     - Trade plan generation ranks active opportunities with current paper positions and recent LearningEvent rows, then stores advisory TradePlanItem rows for dashboard review.
     - Research auto-trading can create small paper Trade rows and LearningEvent(source=research_auto_trade) from source-backed opportunities when explicitly enabled.
     - Focused symbols add user-selected stocks to scheduled research and advisory plan watch items.
+    - Emerging/IPO discovery can add validated symbols to the separate emerging.settings seed list for research review, but does not submit orders.
     - Manual user paper buys create Trade(strategy=manual) rows and LearningEvent(source=manual_order), then reconciliation can update fills/outcomes.
   limitations:
     - Closed-trade reconciliation is first-pass FIFO-style matching and does not yet track partial lot remaining quantity.
@@ -1004,6 +1051,10 @@ test_contract:
       covers: portfolio position summary math for long market value, unrealized P/L, open position count, and owned-position value allocation.
     tests/trade-sizing.test.ts:
       covers: dashboard bid range and max holding normalization plus runtime application to bot/research auto-trade configs.
+    tests/emerging-settings.test.ts:
+      covers: Emerging/IPO settings normalization for symbols, price range, and max holding.
+    tests/emerging-discovery.test.ts:
+      covers: IPO/emerging-tech news scoring and tradable candidate filtering.
     tests/manual-order.test.ts:
       covers: explicit manual paper buy submission through a mock broker and paper-only safety block.
     tests/helpers.ts:

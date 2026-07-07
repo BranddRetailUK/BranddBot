@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, LineChart, ListChecks, Newspaper, TrendingUp } from "lucide-react";
+import { Activity, LineChart, ListChecks, Newspaper, Rocket, TrendingUp } from "lucide-react";
 
 const items = [
   { href: "/dashboard", label: "Overview", icon: Activity },
   { href: "/dashboard/plan", label: "Trade Plan", icon: ListChecks },
   { href: "/dashboard/trades", label: "Trades", icon: LineChart },
   { href: "/dashboard/stocks", label: "Stocks", icon: TrendingUp },
+  { href: "/dashboard/emerging", label: "Emerging", icon: Rocket },
   { href: "/dashboard/research", label: "Research", icon: Newspaper }
 ] as const;
 

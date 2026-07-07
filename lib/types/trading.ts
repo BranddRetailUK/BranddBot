@@ -84,6 +84,36 @@ export type TradeSizingSettings = {
   updatedAt?: string;
 };
 
+export type EmergingResearchSettings = {
+  enabled: boolean;
+  seedSymbols: string[];
+  maxSymbols: number;
+  newsLookbackHours: number;
+  newsLimit: number;
+  minOpportunityConfidence: number;
+  minPrice: number;
+  maxPrice: number;
+  minAvgDailyVolume: number;
+  maxMarketCapUsd: number;
+  maxIpoAgeDays: number;
+  maxBidNotional: number;
+  maxPositionNotionalPerSymbol: number;
+  updatedAt?: string;
+};
+
+export type EmergingDiscoveryCandidate = {
+  symbol: string;
+  companyName?: string;
+  source: string;
+  headline: string;
+  sourceUrl: string;
+  score: number;
+  reasons: string[];
+  publishedAt: string;
+  tradable: boolean;
+  fractionable: boolean;
+};
+
 export type OrderRequest = {
   symbol: string;
   side: OrderSide;

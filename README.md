@@ -6,7 +6,7 @@ This project is an experiment scaffold, not financial advice. Keep it in paper m
 
 ## What Is Included
 
-- Next.js dashboard with separate pages for overview, trade plans, paper trades, ranked stocks, and research.
+- Next.js dashboard with separate pages for overview, trade plans, paper trades, ranked stocks, emerging/IPO candidates, and research.
 - Live portfolio value graph and owned-stock value chart on the trades dashboard, backed by Alpaca paper data and browser polling.
 - Dashboard bid range and max per-stock holding controls for paper bot sizing, stored in Postgres runtime settings.
 - RSI baseline strategy with OpenAI reasoning that can only block, hold, or agree with deterministic RSI signals.
@@ -15,6 +15,7 @@ This project is an experiment scaffold, not financial advice. Keep it in paper m
 - Portfolio snapshots for paper account value, cash, buying power, unrealized P/L, and open-position count.
 - Research crawler that stores source-backed opportunities for AI context, plans, and optional paper-only research auto-trading.
 - Focused stock controls that add selected symbols to scheduled research crawls and advisory trade plans.
+- Emerging/IPO lane with its own runtime settings, explicit Alpaca News discovery scan, and candidate table for newly public or startup-tech-style symbols.
 - Stock search by ticker or company name using Alpaca active US equity assets, with explicit user-submitted manual paper buys.
 - Trade plan builder that ranks opportunities against current paper positions and learning notes before anything is eligible for RSI scanning.
 - Optional research auto-trade executor that can submit small Alpaca paper orders from positive source-backed opportunities while keeping RSI/OpenAI execution unchanged.
@@ -88,6 +89,8 @@ The default runtime is cost-controlled: the worker runs every 5 minutes, determi
 
 The Trades page can override paper bid sizing at runtime with a min/max bid range and a max holding value per stock. These values are stored in Postgres `BotConfig`, so the worker and dashboard scan buttons read them before paper-trading evaluation without needing a redeploy.
 
+The Emerging page stores its own `emerging.settings` runtime config in Postgres. Its Run Discovery action performs a bounded Alpaca News scan for IPO/public-debut/startup-tech terms, validates returned symbols against Alpaca tradable fractionable assets, and adds candidates to the Emerging seed list. This lane surfaces candidates for review; it does not place orders.
+
 ## Safety Model
 
 - OpenAI cannot override deterministic RSI strategy output.
@@ -98,6 +101,7 @@ The Trades page can override paper bid sizing at runtime with a min/max bid rang
 - Missing Alpaca credentials block broker actions.
 - The dashboard emergency stop disables the worker flag and cancels open Alpaca paper orders when credentials are available.
 - Research opportunities cannot bypass live-trading safety. They can submit paper orders only through the explicit research auto-trade executor when enabled.
+- Emerging/IPO discovery cannot place orders and cannot bypass Alpaca tradability, paper-only mode, or existing risk gates.
 - Research auto-trading is paper-only, source-backed, size-limited, cooldown-limited, and recorded with `strategy=research_auto`.
 - Trade plan items are advisory only. They rank candidates and explain tradability, but they cannot place orders or bypass RSI, OpenAI review, or the risk gate.
 - Manual buys from the Stocks page are user-directed Alpaca paper market orders, require paper-only safety checks, and are recorded with `strategy=manual`.
